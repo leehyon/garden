@@ -1,12 +1,12 @@
 # yaml-language-server: $schema=./runtime/quartz/plugins/quartz-plugins.schema.json
 configuration:
-  pageTitle: Quartz 5
+  pageTitle: der Garten
   pageTitleSuffix: ""
   enableSPA: true
   enablePopovers: true
   analytics: null
   locale: en-US
-  baseUrl: sosiristseng.github.io/template-quartz
+  baseUrl: garden.kohsruhe.com
   ignorePatterns:
     - private
     - templates
@@ -203,7 +203,8 @@ plugins:
     enabled: true
     options:
       links:
-        GitHub: https://github.com/sosiristseng
+        GitHub: https://github.com/leehyon
+        Blog: https://www.kohsruhe.com/
     layout:
       position: footer
       priority: 50
