@@ -76,6 +76,7 @@ plugins:
     enabled: true
     options:
       markdownLinkResolution: shortest
+      externalLinkIcon: false
     order: 60
   - source: "@quartz-community/description"
     enabled: true
