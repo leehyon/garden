@@ -206,6 +206,7 @@ plugins:
       links:
         GitHub: https://github.com/leehyon
         Blog: https://www.kohsruhe.com/
+        CC BY-NC-SA 4.0: https://creativecommons.org/licenses/by-nc-sa/4.0/
     layout:
       position: footer
       priority: 50
