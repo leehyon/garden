@@ -33,22 +33,8 @@ jobs:
       - name: Setup Pages
         id: pages
         uses: actions/configure-pages@v6
-      - name: Strip Protocol from URL
-        id: clean_url
-        run: |
-          # Get the raw URL (e.g., https://github.io)
-          RAW_URL="${{ steps.pages.outputs.base_url }}"
-
-          # Strip both http:// and https:// prefixes
-          CLEANED_URL="${RAW_URL#http:///}"
-          CLEANED_URL="${CLEANED_URL#https://}"
-
-          # Save it to the environment output
-          echo "stripped_url=$CLEANED_URL" >> $GITHUB_OUTPUT
       - name: Copy documents and settings to runtime
-        run: |
-          yq -i '.configuration.baseUrl = "${{ steps.clean_url.outputs.stripped_url }}"' quartz.config.yaml
-          cp -vr quartz.config.yaml content/ runtime/
+        run: cp -vr quartz.config.yaml content/ runtime/
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
