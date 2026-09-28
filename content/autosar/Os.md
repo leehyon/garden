@@ -1,7 +1,3 @@
----
-title: AUTOSAR OS
----
-
 AUTOSAR OS 是运行在 MCU 硬件与 RTE/BSW/Application 之间的实时调度内核，核心解决以下问题：
 - 将任务、ISR、Alarm、Event、ScheduleTable 统一映射到确定性的实时调度模型
 - 在多核场景下提供跨核服务、IOC 通信和 Spinlock 同步
