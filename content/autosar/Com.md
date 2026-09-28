@@ -1,3 +1,7 @@
+---
+title: Communication
+---
+
 Com 是 AUTOSAR 通信栈中的信号语义层：
 - 向上屏蔽报文布局、字节序和发送模式，为 RTE/CDD 提供面向 Signal、SignalGroup 的访问接口
 - 向下把信号组包成 I-PDU[^1] ，或把接收到的 I-PDU 解包成信号，并通过 [[PduR]] 与具体总线协议栈解耦
