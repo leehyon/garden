@@ -10,6 +10,8 @@ Com 是 AUTOSAR 通信栈中的信号语义层：
 
 [^1]: Interaction Layer Protocol Data Unit，也就是通俗意义的报文
 
+![[communication-stack.png]]
+
 > 可以把 Com 模块看成 AUTOSAR 的序列化/反序列化层，类似 `protobuf`、`json` 做的事。
 
 Com 不直接关心 CAN ID、LIN Frame、Ethernet Socket 或具体控制器硬件。Com 看到的是 `PduIdType`、`PduInfoType` 和 I-PDU，具体路由目标由 PduR 配置决定。
