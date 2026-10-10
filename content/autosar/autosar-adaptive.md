@@ -2,7 +2,7 @@
 title: AUTOSAR Adaptive
 ---
 
-AUTOSAR 于 2017 年正式推出 Adaptive Platform（AP），以应对自动驾驶、智能座舱、车云互联和全车 OTA 等场景对高性能计算平台的需求。相比面向微控制器（MCU）、强调静态配置的 Classic Platform（CP），Adaptive 运行在兼容 POSIX 标准的高性能操作系统（如 Linux、QNX）之上，原生支持现代 C++、多进程架构、面向服务通信（SOA）以及应用的动态部署与更新。
+AUTOSAR 于 2017 年正式推出 Adaptive Platform（AP），以应对自动驾驶、智能座舱、车云互联和全车 OTA 等场景对高性能计算平台的需求。相比面向 MCU、强调静态配置的 [[autosar-classic|Classic Platform]]，Adaptive 运行在兼容 POSIX 标准的高性能操作系统（如 Linux、QNX）之上，原生支持现代 C++、多进程架构、面向服务通信（SOA）以及应用的动态部署与更新。
 
 AP 与 CP 并非替代关系，而是分工协作：CP 专注于底层纳秒/微秒级硬实时控制与高安全完整性（ASIL D）；AP 则作为中央计算单元与域控制器的核心软件基座，处理海量数据吞吐与多核异构协同。两者通常通过 SOME/IP 等跨域协议进行通信协作。
 
@@ -10,32 +10,15 @@ AP 最大的特点是==运行时动态性==：服务可以动态注册与发现�
 
 ## 1. CP 与 AP 的平台差异
 
-两代平台的根本差异源于设计哲学中==确定性==与==灵活性==的权衡：
-- **CP**：在系统集成与编译阶段静态固化所有 Task、通信拓扑及资源分配，系统启动后几乎不可更改，强调行为的绝对可预测性与高硬实时性。
-- **AP**：采用 POSIX 多进程与 SOA 架构，支持服务的动态注册与发现、应用的独立部署与按需加载，更贴近现代分布式与云原生软件工程范式。
+两代平台的根本差异源于设计哲学中确定性与灵活性的权衡：
+- **CP**：在系统集成与编译阶段静态固化所有 Task、通信拓扑及资源分配，系统启动后几乎不可更改，**强调行为的绝对可预测性与高硬实时性**
+- **AP**：采用 POSIX 多进程与 SOA 架构，支持服务的动态注册与发现、应用的独立部署与按需加载，更贴近现代分布式与云原生软件工程范式
 
-```mermaid
-flowchart TB
-    subgraph CP["Classic Platform (CP) - 强确定性与安全"]
-        C1["目标硬件: MCU (如 AURIX TC3xx, S32K)"]
-        C2["运行环境: OSEK / AUTOSAR OS"]
-        C3["通信模式: 信号驱动 (Signal-Oriented / CAN / LIN)"]
-        C4["部署更新: 编译期静态绑定 / 整包刷写 (UDS)"]
-    end
-
-    subgraph AP["Adaptive Platform (AP) - 灵活性与高扩展"]
-        A1["目标硬件: 高性能 SoC (如 Orin, 8295, TDA4)"]
-        A2["运行环境: POSIX OS (Linux / QNX)"]
-        A3["通信模式: 服务驱动 (SOA / SOME/IP, DDS)"]
-        A4["部署更新: 运行时动态加载 / 应用级 OTA (UCM)"]
-    end
-
-    CP <==>|"跨域网关 (Signal ↔ Service)"| AP
-```
+![[vector-autosar-comparison.png]]
 
 ### 核心维度对比
 
-| 维度       | Classic Platform (CP)              | Adaptive Platform (AP)             |
+| 维度       | Classic Platform                   | Adaptive Platform                  |
 | :------- | :--------------------------------- | :--------------------------------- |
 | **目标硬件** | 实时 MCU（如 Infineon TC3xx、NXP S32K）  | 高性能异构 SoC（如 NVIDIA Orin、高通 8295）   |
 | **操作系统** | 单地址空间 OSEK/VDX 实时 OS               | POSIX 标准 OS（Linux、QNX、VxWorks）     |
@@ -49,7 +32,7 @@ flowchart TB
 
 ## 2. Adaptive 架构与 ARA 功能集群
 
-在 Classic Platform 中，应用软件组件（SWC）通过 RTE 屏蔽底层硬件与基础软件通信；而在 Adaptive Platform 中，所有上层自适应应用（Adaptive Application, AA）统一通过 **ARA（AUTOSAR Runtime for Adaptive Applications）** 访问平台能力。
+在 Classic Platform 中，应用软件组件 SWC 通过 RTE 屏蔽底层硬件与基础软件通信；而在 Adaptive Platform 中，所有上层自适应应用（Adaptive Application, AA）统一通过 **ARA（AUTOSAR Runtime for Adaptive Applications）** 访问平台能力。
 
 ARA 为应用提供标准化的 C++ API 规范，其底层由一系列相互协作的功能集群（Functional Clusters, FC）支撑，构筑起车载计算平台的操作环境。
 
@@ -57,7 +40,7 @@ ARA 为应用提供标准化的 C++ API 规范，其底层由一系列相互协�
 flowchart TB
     AA["Adaptive Applications (AA)"]
     
-    subgraph ARA["ARA (AUTOSAR Runtime for Adaptive Applications)"]
+    subgraph ARA["ARA"]
         direction TB
         subgraph ControlPlane["控制面与生命周期集群"]
             EM["EM (Execution Mgmt)"]
@@ -88,28 +71,103 @@ flowchart TB
 
 ### 常见功能集群职责
 
-| 功能集群 | 模块缩写 | 核心工程职责 |
-| :--- | :--- | :--- |
-| **Execution Management** | `EM` | 平台启动入口，解析执行清单，管理进程生命周期、依赖拓扑与安全策略 |
-| **State Management** | `SM` | 仲裁系统模式与整车上下文，协调功能组（Function Group）状态切换 |
-| **Communication Management** | `CM` | 封装 SOME/IP、DDS 及 IPC 通信，提供面向服务的动态发现、RPC 与发布/订阅 |
-| **Platform Health Management** | `PHM` | 对进程的心跳活度、执行超时与执行逻辑进行监视，触发恢复策略 |
-| **Persistency** | `PER` | 提供键值（Key-Value）与文件存储，支持写安全机制与掉电一致性保护 |
-| **Update & Config Management** | `UCM` | 支持独立软件包的安装、校验、A/B 分区切换与异常快速回滚 |
-| **Cryptography / IAM** | `CRYPTO / IAM` | 密钥生命周期管理（HSM/TEE 硬件加速）、报文验签加解密与应用访问控制鉴权 |
-| **Diagnostics** | `DM` | 提供 UDS 与 DoIP（ISO 13400）车载诊断服务接口 |
-| **Time Synchronization** | `TS` | 实现跨域与板内精确时钟同步（基于 IEEE 802.1AS / gPTP） |
-| **Network Management** | `NM` | 负责车载以太网节点的协同休眠与唤醒状态管理 |
-
-### 模块裁剪梯度与系统复杂度
+| 功能集群                           | 模块缩写         | 核心工程职责                                         |
+| :----------------------------- | :----------- | :--------------------------------------------- |
+| **Execution Management**       | `EM`         | 平台启动入口，解析执行清单，管理进程生命周期、依赖拓扑与安全策略               |
+| **State Management**           | `SM`         | 仲裁系统模式与整车上下文，协调功能组（Function Group）状态切换         |
+| **Communication Management**   | `CM`         | 封装 SOME/IP、DDS 及 IPC 通信，提供面向服务的动态发现、RPC 与发布/订阅 |
+| **Platform Health Management** | `PHM`        | 对进程的心跳活度、执行超时与执行逻辑进行监视，触发恢复策略                  |
+| **Persistency**                | `PER`        | 提供键值（Key-Value）与文件存储，支持写安全机制与掉电一致性保护           |
+| **Update & Config Management** | `UCM`        | 支持独立软件包的安装、校验、A/B 分区切换与异常快速回滚                  |
+| **Cryptography / IAM**         | `CRYPTO/IAM` | 密钥生命周期管理（HSM/TEE 硬件加速）、报文验签加解密与应用访问控制鉴权        |
+| **Diagnostics**                | `DM`         | 提供 UDS 与 DoIP（ISO 13400）车载诊断服务接口               |
+| **Time Synchronization**       | `TS`         | 实现跨域与板内精确时钟同步（基于 IEEE 802.1AS / gPTP）          |
+| **Network Management**         | `NM`         | 负责车载以太网节点的协同休眠与唤醒状态管理                          |
 
 Adaptive Platform 采用模块化设计，可按需裁剪：
-- **微内核最小系统**：`EM` + `CM` + 目标业务应用（AA）；
-- **标准量产平台**：`EM` + `SM` + `CM` + `PER` + `PHM`；
-- **OTA/网联智能节点**：增加 `UCM` + `CRYPTO` + `IAM`；
-- **高阶智驾中央计算平台**：通常启用绝大部分功能集群，并引入时间同步（TS）与诊断（DM）。
 
-## 3. 执行管理 EM 与状态管理 SM
+- 微内核最小系统：`EM` + `CM` + 目标业务应用（AA）
+- 标准量产平台：`EM` + `SM` + `CM` + `PER` + `PHM`
+- OTA/网联智能节点：增加 `UCM` + `CRYPTO` + `IAM`
+- 高阶智驾中央计算平台：通常启用绝大部分功能集群，并引入时间同步（TS）与诊断（DM）
+
+## 3. Adaptive Application
+
+在 AUTOSAR AP 体系中，上层业务逻辑的最终承载单元是 Adaptive Application（AA）。它打破了传统 Classic Platform 中“编译期绑定的静态 Runnable”模型，转变为运行于操作系统之上的多线程独立 POSIX 进程，具备完整的生命周期状态机与标准化的三层分层接口。
+
+```mermaid
+flowchart TB
+    subgraph Config["配置双轨制 (Configuration Descriptors)"]
+        M["Manifest 清单<br/>(平台相关: 依赖拓扑/库依赖/恢复策略)"]
+        IC["Instance Configuration<br/>(应用相关: 静态变体/业务选项参数)"]
+    end
+
+    subgraph AA_Process["Application (1:n Executables / POSIX Process)"]
+        direction TB
+        subgraph Lifecycle["执行阶段 (Execution States)"]
+            INIT["INIT: 资源初始化 / 报告自身运行态"]
+            RUN["RUN: 多线程业务循环 (Thread 1..n)"]
+            SHUTDOWN["SHUTDOWN: 状态注销 / 资源安全释放"]
+            INIT --> RUN --> SHUTDOWN
+        end
+    end
+
+    subgraph ThreePillars["三层接口支撑 (Three Pillars of Interfaces)"]
+        I1["POSIX PSE51 / C++ 标准库"]
+        I2["ara::com (面向服务通信接口)"]
+        I3["Direct API (基础集群直接调用)"]
+    end
+
+    subgraph Runtime_Env["平台支撑环境"]
+        OS["POSIX OS (Linux / QNX)"]
+        Services["Adaptive AUTOSAR Services<br/>(平台系统服务 / 用户业务服务)"]
+        Foundation["Adaptive AUTOSAR Foundation<br/>(EM / PER / CRYPTO / PHM 等核心集群)"]
+    end
+
+    M -.-> AA_Process
+    IC -.-> AA_Process
+
+    AA_Process === ThreePillars
+    I1 --> OS
+    I2 --> Services
+    I3 --> Foundation
+
+```
+
+### 进程实体与多线程执行模型
+
+**1:n Executables 映射**：一个逻辑上的 Adaptive Application 可包含一个或多个可执行二进制文件（Executables）。每个 Executable 在系统加载时均实例化为一个独立的 **POSIX Process**，拥有专属虚拟地址空间与文件描述符，实现硬件级内存隔离。
+
+**多线程并发（Multi-Threaded）**：进程内部广泛采用现代 C++14/17 线程库（`std::thread`）或 POSIX 线程（`pthread`）进行高并发分工，例如将通信监听、算法计算与看门狗心跳分别绑定至不同线程独立运行。
+
+### 状态生命周期
+
+AA 具备清晰的生命周期分期，并受 Execution Management（EM）的统一监控：
+
+1. **INIT（初始化阶段）**：完成内存池与环形队列预分配、外设句柄获取，并通过 Execution Client 调用 `ReportExecutionState(kRunning)` 告知 EM 自身就绪；
+2. **RUN（运行阶段）**：主业务多线程循环，处理传感器输入、对外发布/订阅 Event，或响应 RPC Method；
+3. **SHUTDOWN（下电阶段）**：接收到 EM 的状态迁移指令或 OS 信号（SIGTERM）后，执行脏数据刷盘（Sync to PER）、注销服务并释放资源后安全退出。
+
+### 三层接口体系
+
+AA 与宿主环境的交互被严格收敛为三类标准化途径：
+
+1. **POSIX PSE51 / C++ 标准库**：受限的 OS 级通用底层接口。AA 仅能使用 POSIX 实时安全子集（线程、互斥量、单调时钟等），由底层 POSIX OS（Linux/QNX）直接承载，严禁随意调用未经授权的系统特权调用；
+2. **`ara::com` 接口**：统一的面向服务通信接口。无论 AA 访问的是平台级基础服务（如网关服务、诊断路由服务），还是其他 AA 提供的业务微服务，统一通过 `ara::com` 代理/骨架（Proxy/Skeleton）模式以 RPC、Event 或 Field 交互；
+3. **Direct API（直接接口）**：专用于访问 **Adaptive AUTOSAR Foundation** 核心集群的 C++ 原生接口。应用直接调用静态/动态 API 与基础功能交互，典型如：
+	- 向 `EM` 上报执行状态；
+	- 调用 `PER` 存取 Key-Value 或读写标定文件；
+	- 调用 `CRYPTO` 请求硬件加解密或验签；
+	- 向 `PHM` 发送周期心跳检查点（Alive Checkpoint）。
+
+### 配置双轨制：Manifest 与 Instance Configuration
+
+AA 实现了软件逻辑与运行配置的完全解耦，依赖两套元数据描述文件：
+
+- **Manifest（平台清单）**：面向底层基础设施与中间件。定义进程的二进制存储路径、启动参数、调度优先级（Nice/FIFO）、CPU 亲和性掩码（Affinity），以及当进程异常崩溃时的恢复动作（Recovery Action，如阈值内重启）。
+- **Instance Configuration（实例配置）**：面向应用业务本身。提供应用实例的静态元数据与变体参数（如车辆高低配选项、特定国家的合规参数、相机/雷达标定矩阵路径等），由应用在启动时读取解析。
+
+## 4. 执行管理 EM 与状态管理 SM
 
 Adaptive 告别了单核中断循环与固定周期调度模式，采用“整车状态驱动，进程依赖编排”的执行体系：
 - **Execution Management (EM)**：负责物理进程生命周期管理，扮演 ECU 级 `systemd` 的角色；
@@ -148,7 +206,7 @@ sequenceDiagram
 3. **依赖关系**：启动前必须就绪的先决服务（如 SensorDriver 先于 PerceptionApp 启动）；
 4. **功能组映射**：进程在各 Function Group State 下的行为（启动、终止或挂起）。
 
-## 4. 通信管理 CM 与 SOME/IP 服务
+## 5. 通信管理 CM 与 SOME/IP 服务
 
 通信管理（`ara::com`）基于面向服务架构（Service-Oriented Architecture, SOA），屏蔽底层物理传输介质，向应用提供一致的服务契约。
 
@@ -210,7 +268,7 @@ if (!handles.empty()) {
 
 > **跨 ECU 与板内 IPC 绑定**：跨 ECU 通信通常绑定至 **SOME/IP** 或 **DDS**；而在同一 ECU 内部，现代 AP 栈底层会自动切换为基于共享内存（POSIX SHM）的零拷贝传输，应用代码保持透明统一。
 
-## 5. 持久化 (PER) 与更新配置管理 (UCM)
+## 6. 持久化 (PER) 与更新配置管理 (UCM)
 
 ### 持久化存储 (PER)
 
@@ -241,19 +299,26 @@ flowchart LR
     end
 ```
 
-## 6. C++14/17 与 POSIX PSE51 编程约束
+## 7. C++14/17 与 POSIX PSE51 编程约束
 
 Adaptive 拥抱现代 C++ 开发生态，但在严苛的车规级安全约束下，绝非放任使用全部语言特性，而是受限于 **POSIX PSE51（单进程多线程实时安全子集）** 及 **AUTOSAR C++14 编码规范**。
 
-```text
-       Classic 编程模型                   Adaptive 编程模型
-      ┌─────────────────┐               ┌─────────────────┐
-      │  Runnable (C)   │               │   Thread (C++)  │
-      └────────┬────────┘               └────────┬────────┘
-               │ 映射到                          │ 归属于
-      ┌────────▼────────┐               ┌────────▼────────┐
-      │  AUTOSAR Task   │               │   OS Process    │
-      └─────────────────┘               └─────────────────┘
+```mermaid
+flowchart LR
+
+    subgraph CP["Classic Programming Model"]
+        direction TB
+        CR["Runnable (C)"]
+        CT["AUTOSAR Task"]
+        CR -->|Mapped to| CT
+    end
+
+    subgraph AP["Adaptive Programming Model"]
+        direction TB
+        AT["Thread (C++)"]
+        APROC["OS Process"]
+        AT -->|Belongs to| APROC
+    end
 ```
 
 ### 关键约束与设计实践
@@ -269,7 +334,7 @@ Adaptive 拥抱现代 C++ 开发生态，但在严苛的车规级安全约束下
    - 全面推广 **RAII**、智能指针与泛型编程；
    - **异常处理策略**：在安全关键型子系统（ASIL）中通常编译期彻底禁用 C++ 异常（采用 `ara::core::Result` 错误码机制代替），仅在 QM 级非关键服务中有条件允许异常。
 
-## 7. 与 Classic Platform 的跨域集成
+## 8. 与 Classic Platform 的跨域集成
 
 在集中式电子电气（E/E）架构演进过程中，AP 与 CP 将长期协同共存。AP 负责高算力计算，CP 负责底层敏捷执行，两者依赖跨域网关（Gateway）构建端到端通道。
 
@@ -308,7 +373,7 @@ flowchart LR
 2. **限流与抑制**：高频 CAN 信号进入 AP 端前需进行变化率过滤或合并打包，防止 SOME/IP 广播泛洪冲垮 AP 端的接收队列；
 3. **时钟基准对齐**：跨域数据融合依赖一致的时间戳。网关需将底层局部时钟映射至 IEEE 802.1AS（gPTP）全车统一授时基准。
 
-## 8. 信息安全 (Security) 与平台健康管理 (Safety)
+## 9. 信息安全 (Security) 与平台健康管理 (Safety)
 
 引入以太网、动态进程与开放生态后，AP 必须同时防御来自外部的恶意攻击（Cybersecurity），并容忍系统内部的软硬件故障（Functional Safety）。
 
@@ -339,7 +404,7 @@ flowchart TB
   2. **Deadline 监控**：从检查点 A 到检查点 B 的耗时不能超过预设阈值（防卡死/防饥饿）；
   3. **Logical 监控**：代码逻辑执行路径必须完全匹配预设的状态转换图（防指针跳转错乱或控制流劫持）。
 
-## 9. 典型量产部署与系统性能调优
+## 10. 典型量产部署与系统性能调优
 
 在基于 NVIDIA Orin、高通 8295 等旗舰 SoC 的量产架构中，AP 通常运行在 Type-1 Hypervisor 隔离出的多虚拟机（VM）环境中，兼顾硬安全与高算力需求。
 
