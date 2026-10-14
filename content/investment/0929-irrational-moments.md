@@ -1,5 +1,5 @@
 ---
-title: "Understanding Market Anomalies Through Behavioral Finance"
+title: Understanding Market Anomalies Through Behavioral Finance
 date: 2026-09-29
 description: 那些非理性时刻：从行为金融学理解市场异象
 tags:

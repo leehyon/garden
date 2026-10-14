@@ -1,5 +1,5 @@
 ---
-title: "The AIDC Investment Boom"
+title: The AIDC Investment Boom
 date: 2026-09-22
 description: AIDC 万亿新基建何时休
 tags:
