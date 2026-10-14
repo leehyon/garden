@@ -1,0 +1,227 @@
+<mxfile host="app.diagrams.net" modified="2026-10-12T07:00:00.000Z" agent="Mozilla/5.0" version="21.0.0" type="device">
+  <diagram id="soc_autosar_clean" name="Cockpit SoC Architecture (Clean Layout)">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ==================== HEADER & TITLE ==================== -->
+        <mxCell id="title_banner" value="&lt;b style=&quot;font-size: 18px;&quot;&gt;座舱 SoC 跨平台车辆通信与 AUTOSAR AP 数据流转架构&lt;/b&gt;&lt;br/&gt;&lt;span style=&quot;color: #555; font-size: 12px;&quot;&gt;分层清晰：上层 HMI 交互 (AAOS) ── 中间件中枢 (QNX / AUTOSAR AP) ── 底层车控执行 (Classic MCU)&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B0BEC5;strokeWidth=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="1680" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== 1. AAOS 娱乐交互域 (左侧) ==================== -->
+        <mxCell id="aaos_box" value="&lt;b style=&quot;font-size: 15px; color: #2E7D32;&quot;&gt;1. AAOS 智能座舱娱乐域 (Android)&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F1F8E9;strokeColor=#4CAF50;strokeWidth=2.5;verticalAlign=top;align=center;arcSize=4;" vertex="1" parent="1">
+          <mxGeometry x="40" y="100" width="280" height="740" as="geometry" />
+        </mxCell>
+
+        <mxCell id="aaos_desc" value="• 面向车机 UI 与三方应用&lt;br/&gt;• 面向 Vehicle Property 属性编程&lt;br/&gt;• 屏蔽底层总线协议细节" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#C8E6C9;strokeWidth=1;fontSize=11;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="140" width="240" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="app_cluster" value="&lt;b&gt;Android HMI / Apps&lt;/b&gt;&lt;br/&gt;&lt;span style=&quot;font-size: 11px; color: #555;&quot;&gt;空调 / 设置 / 门窗 / 多媒体&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#4CAF50;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="70" y="240" width="220" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="vhal_cluster" value="&lt;b&gt;SRDC VHAL&lt;/b&gt;&lt;br/&gt;&lt;span style=&quot;font-size: 11px; color: #555;&quot;&gt;Vehicle HAL (gRPC 客户端)&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F5E9;strokeColor=#2E7D32;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="70" y="520" width="220" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="flow_app_vhal" value="&lt;b&gt;Vehicle Properties&lt;/b&gt;&lt;br/&gt;(Get / Set / Sub)" style="endArrow=classic;startArrow=classic;html=1;strokeColor=#2E7D32;strokeWidth=2.5;fontSize=11;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="app_cluster" target="vhal_cluster">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+
+        <!-- ==================== 2. QNX 宿主与非 AP 原生服务 (上方) ==================== -->
+        <mxCell id="qnx_box" value="&lt;b style=&quot;font-size: 15px; color: #6A1B9A;&quot;&gt;2. QNX 宿主安全域 (172.16.27.43)&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAFAFA;strokeColor=#8E24AA;strokeWidth=2.5;verticalAlign=top;align=left;spacingLeft=20;arcSize=3;" vertex="1" parent="1">
+          <mxGeometry x="350" y="100" width="1020" height="740" as="geometry" />
+        </mxCell>
+
+        <!-- QNX Native Apps Zone -->
+        <mxCell id="qnx_native_zone" value="&lt;b style=&quot;color: #555;&quot;&gt;QNX Native 原生轻量服务 (Non-AP)&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3E5F5;strokeColor=#BA68C8;strokeWidth=1.5;verticalAlign=top;align=center;" vertex="1" parent="1">
+          <mxGeometry x="740" y="130" width="600" height="120" as="geometry" />
+        </mxCell>
+
+        <mxCell id="non_ap_cluster" value="&lt;b&gt;仪表/环视等原生应用&lt;/b&gt;&lt;br/&gt;&lt;span style=&quot;font-size: 11px;&quot;&gt;Cluster / Camera (Non-AP)&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9C27B0;strokeWidth=1.5;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="760" y="170" width="190" height="55" as="geometry" />
+        </mxCell>
+
+        <mxCell id="udp_server_cluster" value="&lt;b&gt;UDP Socket Server&lt;/b&gt;&lt;br/&gt;&lt;span style=&quot;font-size: 11px; color: #1565C0;&quot;&gt;172.16.1.1:12345&lt;/span&gt;&lt;br/&gt;&lt;span style=&quot;font-size: 10px; color: #666;&quot;&gt;IPC 数据分发/控制中继&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E3F2FD;strokeColor=#1976D2;strokeWidth=2;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="160" width="220" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="flow_nonap_udp" value="UDP Socket" style="endArrow=classic;startArrow=classic;html=1;strokeColor=#1976D2;strokeWidth=2;fontSize=11;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="non_ap_cluster" target="udp_server_cluster">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+
+        <!-- ==================== 3. AUTOSAR AP 平台中间件中枢 ==================== -->
+        <mxCell id="ap_box" value="&lt;b style=&quot;font-size: 14px; color: #006064;&quot;&gt;AUTOSAR Adaptive Platform 运行时&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E0F7FA;strokeColor=#00838F;strokeWidth=2;verticalAlign=top;align=left;spacingLeft=15;arcSize=3;" vertex="1" parent="1">
+          <mxGeometry x="370" y="270" width="970" height="550" as="geometry" />
+        </mxCell>
+
+        <!-- AP 模块 1: 跨域桥接 (GRPC GW & IVI Bridge) -->
+        <mxCell id="module_gw" value="&lt;b&gt;① 跨域接入网关&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#00ACC1;strokeWidth=1.5;verticalAlign=top;align=center;" vertex="1" parent="1">
+          <mxGeometry x="390" y="310" width="220" height="340" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ivi_bridge" value="&lt;b&gt;IVI I3 Bridge&lt;/b&gt;&lt;br/&gt;&lt;span style=&quot;font-size: 10px; color: #555;&quot;&gt;数据模型适配&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1F5FE;strokeColor=#0288D1;strokeWidth=1.5;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="415" y="360" width="170" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="grpc_gw" value="&lt;b&gt;GRPC GW&lt;/b&gt;&lt;br/&gt;&lt;span style=&quot;font-size: 10px; color: #555;&quot;&gt;gRPC 服务端&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F5E9;strokeColor=#388E3C;strokeWidth=2;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="415" y="530" width="170" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="flow_gw_bridge" value="I3_AQ_Signals" style="endArrow=classic;startArrow=classic;html=1;strokeColor=#D32F2F;strokeWidth=2;fontSize=10;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="grpc_gw" target="ivi_bridge">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+
+        <!-- AP 模块 2: 信号分发治理 (ED1/2/3, SoS GW, Event Emitter) -->
+        <mxCell id="module_dispatch" value="&lt;b&gt;② 信号治理与路由分发中心&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#00ACC1;strokeWidth=1.5;verticalAlign=top;align=center;" vertex="1" parent="1">
+          <mxGeometry x="640" y="310" width="450" height="340" as="geometry" />
+        </mxCell>
+
+        <mxCell id="test_aa_box" value="&lt;b&gt;Test AA (自动化测试桩)&lt;/b&gt;&lt;br/&gt;&lt;span style=&quot;font-size: 10px; color: #D32F2F;&quot;&gt;注入信号 / 时序验证&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFEBEE;strokeColor=#EF5350;strokeWidth=1.5;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="660" y="350" width="180" height="45" as="geometry" />
+        </mxCell>
+
+        <mxCell id="event_emitter" value="&lt;b&gt;Event Emitter&lt;/b&gt;&lt;br/&gt;&lt;span style=&quot;font-size: 10px; color: #555;&quot;&gt;事件订阅与导出&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E0F7FA;strokeColor=#00838F;strokeWidth=1.5;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="870" y="350" width="190" height="45" as="geometry" />
+        </mxCell>
+
+        <mxCell id="sos_gw" value="&lt;b&gt;SoS GW&lt;/b&gt;&lt;br/&gt;&lt;span style=&quot;font-size: 10px; color: #555;&quot;&gt;Signal ↔ Service 转换&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF8E1;strokeColor=#FFA000;strokeWidth=1.5;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="660" y="440" width="180" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ed_cluster" value="&lt;b&gt;ED1 / ED2 / ED3&lt;/b&gt;&lt;br/&gt;&lt;span style=&quot;font-size: 10px; color: #2E7D32;&quot;&gt;• 去重 (de-dup)&lt;br/&gt;• 多帧重组 (MultiFrame)&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F5E9;strokeColor=#43A047;strokeWidth=1.5;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="870" y="440" width="190" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="flow_ed_gw" value="去重后信号推送 (de-dup)" style="endArrow=classic;html=1;strokeColor=#388E3C;strokeWidth=2;fontSize=10;labelBackgroundColor=#FFFFFF;dashed=1;" edge="1" parent="1" source="ed_cluster" target="grpc_gw">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="965" y="555" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+
+        <!-- AP 模块 3: 基础通信总线 (SOME/IP Daemon) -->
+        <mxCell id="someip_daemon" value="&lt;b style=&quot;font-size: 14px;&quot;&gt;③ SOME/IP Daemon 通信引擎&lt;/b&gt;&lt;br/&gt;&lt;span style=&quot;font-size: 11px;&quot;&gt;负责服务注册/发现 (SD)、序列化、PDU over UDP、SOME/IP 协议栈管理&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ECEFF1;strokeColor=#546E7A;strokeWidth=2.5;fontColor=#263238;" vertex="1" parent="1">
+          <mxGeometry x="390" y="690" width="930" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- 内部挂载到 Daemon -->
+        <mxCell id="flow_gw_daemon" value="ara::com" style="endArrow=classic;startArrow=classic;html=1;strokeColor=#546E7A;strokeWidth=2;fontSize=10;" edge="1" parent="1" source="grpc_gw" target="someip_daemon">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="flow_sos_daemon" value="SOME/IP" style="endArrow=classic;startArrow=classic;html=1;strokeColor=#D32F2F;strokeWidth=2;fontSize=10;" edge="1" parent="1" source="sos_gw" target="someip_daemon">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="flow_ed_daemon" value="CAN-FD / MultiFrame" style="endArrow=classic;startArrow=classic;html=1;strokeColor=#00838F;strokeWidth=2;fontSize=10;" edge="1" parent="1" source="ed_cluster" target="someip_daemon">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+
+        <!-- ==================== 4. 外部实时车控 MCU (右侧) ==================== -->
+        <mxCell id="mcu_box" value="&lt;b style=&quot;font-size: 15px; color: #0277BD;&quot;&gt;4. Vehicle MCU (Classic Platform)&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1F5FE;strokeColor=#0288D1;strokeWidth=2.5;verticalAlign=top;align=center;arcSize=4;" vertex="1" parent="1">
+          <mxGeometry x="1410" y="580" width="310" height="260" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cp_swc" value="&lt;b style=&quot;font-size: 13px;&quot;&gt;CP SWC 实时车控软件&lt;/b&gt;&lt;br/&gt;&lt;span style=&quot;font-size: 11px; color: #555;&quot;&gt;• 车身控制 / 电源时序 / 诊断&lt;br/&gt;• 硬实时底盘与安全信号&lt;br/&gt;• ASIL-D 完整性保障&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#039BE5;strokeWidth=2;align=left;spacingLeft=15;" vertex="1" parent="1">
+          <mxGeometry x="1435" y="630" width="260" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="can_bus_tag" value="整车物理总线 (CAN / CAN-FD / LIN)&lt;br/&gt;连接底盘、车门、车灯等传感器执行器" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF3E0;strokeColor=#FF9800;strokeWidth=1.5;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1435" y="740" width="260" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="flow_cp_can" value="" style="endArrow=classic;startArrow=classic;html=1;strokeColor=#E65100;strokeWidth=2;" edge="1" parent="1" source="cp_swc" target="can_bus_tag">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+
+        <!-- ==================== 5. 跨芯片与跨 VM 核心主干连线 ==================== -->
+
+        <!-- AAOS SRDC VHAL <==> QNX GRPC GW -->
+        <mxCell id="flow_vhal_grpc" value="&lt;b style=&quot;font-size: 12px;&quot;&gt;VHAL gRPC 跨 VM 通信&lt;/b&gt;&lt;br/&gt;(双向控制与状态上报)" style="endArrow=classic;startArrow=classic;html=1;strokeColor=#2E7D32;strokeWidth=3;fontSize=11;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="vhal_cluster" target="grpc_gw">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="350" y="555" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- QNX UDP Server <==> Event Emitter -->
+        <mxCell id="flow_ee_udp" value="事件导出 (UDP)" style="endArrow=classic;html=1;strokeColor=#1976D2;strokeWidth=2.5;fontSize=11;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="event_emitter" target="udp_server_cluster">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="965" y="240" />
+              <mxPoint x="1050" y="240" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- UDP Server <==> SoS GW (0x63 CAN 消息发送) -->
+        <mxCell id="flow_udp_sos" value="0x63 原始报文下发" style="endArrow=classic;html=1;strokeColor=#E65100;strokeWidth=2;fontSize=10;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="udp_server_cluster" target="sos_gw">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1110" y="290" />
+              <mxPoint x="750" y="290" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- SOME/IP Daemon <==> MCU CP SWC (车载以太网) -->
+        <mxCell id="flow_daemon_mcu" value="&lt;b style=&quot;font-size: 12px;&quot;&gt;车载骨干以太网&lt;/b&gt;&lt;br/&gt;• SOME/IP (RPC / Event)&lt;br/&gt;• PDU over UDP (快速信号)" style="endArrow=classic;startArrow=classic;html=1;strokeColor=#D32F2F;strokeWidth=3.5;fontSize=11;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="someip_daemon" target="cp_swc">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1360" y="735" />
+              <mxPoint x="1360" y="670" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+
+        <!-- ==================== 6. 自动化测试闭环 (右上侧) ==================== -->
+        <mxCell id="test_server_box" value="&lt;b style=&quot;font-size: 14px; color: #C62828;&quot;&gt;Test Server (集中自动化测试机)&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFEBEE;strokeColor=#D32F2F;strokeWidth=2;verticalAlign=top;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1410" y="100" width="310" height="230" as="geometry" />
+        </mxCell>
+
+        <mxCell id="test_desc" value="支持全链路自动化注入与闭环回归：&lt;br/&gt;① ADB 直连 AAOS 测试 UI 与属性映射&lt;br/&gt;② 网络接口注入 Test AA 检验网关逻辑&lt;br/&gt;③ 仿真 CAN 总线检验 MCU 与 AP 跨域时延" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#FFCDD2;strokeWidth=1;fontSize=11;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="1430" y="140" width="270" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="test_flow_adb" value="ADB 调试" style="endArrow=classic;html=1;strokeColor=#2E7D32;strokeWidth=2;dashed=1;fontSize=10;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="test_server_box" target="app_cluster">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1565" y="80" />
+              <mxPoint x="180" y="80" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="test_flow_aa" value="TCP/UDP 信号注入" style="endArrow=classic;startArrow=classic;html=1;strokeColor=#1976D2;strokeWidth=2;dashed=1;fontSize=10;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="test_server_box" target="test_aa_box">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1500" y="370" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="test_flow_mcu" value="总线监控/仿真" style="endArrow=classic;startArrow=classic;html=1;strokeColor=#E65100;strokeWidth=2;dashed=1;fontSize=10;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="test_server_box" target="cp_swc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+
+        <!-- ==================== 底部设计要点与数据流说明 ==================== -->
+        <mxCell id="summary_banner" value="&lt;b&gt;核心数据流要点速览：&lt;/b&gt;&amp;nbsp;&amp;nbsp;1. &lt;b&gt;用户控制下发：&lt;/b&gt;Android App → VHAL → gRPC → GRPC GW → IVI Bridge → SOME/IP Daemon → 车载以太网 → MCU CP SWC → 物理执行器&lt;br/&gt;2. &lt;b&gt;整车信号上报：&lt;/b&gt;CAN 传感器 → MCU → SOME/IP / PDU over UDP → Daemon → ED 去重/拼包 (de-dup) → GRPC GW 推送 → VHAL → 刷新 Android 界面&lt;br/&gt;3. &lt;b&gt;原生应用协同：&lt;/b&gt;Event Emitter 订阅 AP 内部总线事件，扁平化为轻量 UDP 报文投递给 UDP Server，供给仪表 (Cluster) 等低延迟原生应用" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFDE7;strokeColor=#FFF59D;strokeWidth=1.5;align=left;spacingLeft=15;fontSize=12;fontColor=#424242;" vertex="1" parent="1">
+          <mxGeometry x="40" y="860" width="1680" height="80" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
