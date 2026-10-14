@@ -4,10 +4,6 @@ date: 2026-09-29
 description: 那些非理性时刻：从行为金融学理解市场异象
 tags:
   - xsi
-  - behavioral-finance
-  - market
-  - factor-investing
-  - discipline
 ---
 
 > 本文根据 2026 年 9 月 29 日 座谈会文字稿整理。内容仅用于知识分享，不构成任何投资建议。
