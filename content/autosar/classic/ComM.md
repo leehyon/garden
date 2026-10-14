@@ -29,6 +29,16 @@ ComM 不负责：
 
 三者在状态切换期间可能不一致。`ComM_RequestComMode()` 返回 `E_OK`，主要表示请求被 ComM 接受，不应简单理解为 BusSM 已经完成物理开网。实际模式由 BusSM 后续通过 `ComM_BusSM_ModeIndication()` 异步反馈。
 
+### 请求聚合与模式仲裁
+
+ComM 将 User 对 Channel 的通信请求聚合后再决定目标模式。一个 Channel 可能关联多个 User，也可能参与 PNC；因此单个 User 释放请求，并不一定使 Channel 立即进入 `NO_COMMUNICATION`。ComM 还会结合通信许可、模式限制及网络管理配置决定请求何时生效。
+
+- User 请求 `FULL_COMMUNICATION` 表示提出通信需求，不是直接启动 CAN Controller 的命令。
+- 释放通信需求后，ComM 可能先经过 `FULL_COMMUNICATION` 的 Ready Sleep 阶段，并由 Nm 协调网络休眠。
+- `ComM_CommunicationAllowed()` 等许可控制可限制通信模式转换；允许状态变化也不代表 BusSM 已完成切换。
+
+状态诊断时应同时观察各 User 请求、Channel 状态、Nm 协调状态和 BusSM 的实际模式指示，不能只看单个请求值。
+
 ### ComM 和 BusSM 的关系
 
 两者之间是典型的请求与确认关系：
@@ -55,19 +65,19 @@ sequenceDiagram
 
 ComM 向 BusSM 发出请求后，不应立即假设总线已经完成切换，而要等待 BusSM 的模式指示。
 
-## State Machine
+## 状态机
 
 ![[comm-state-machine.png]]
 
-## Sequence
+## 典型流程
 
-### Active Startup
+### 主动启动
 
 Active Startup 是“我有本地通信需求，所以主动请求并维持网络”；Passive Startup 是“网络已经被别人唤醒，我只恢复到可参与通信的状态，但不主动声明必须维持网络”。
 
 ![[comm-active-startup.png]]
 
-### Passive Start Up
+### 被动启动
 
 ![[comm-passive-startup.png]]
 

@@ -6,11 +6,11 @@ PduR 是 AUTOSAR 通信栈中的 I-PDU 静态路由器。它解决的核心问�
 
 [^1]: Protocol Data Unit
 
-PduR 的路由决策仅依赖 静态配置的 PDU ID 和路由表。它不解析信号、不修改 Payload、不计算校验和，也不根据数据内容动态选择路由。换句话说，PduR 关注的是“这份 I-PDU 应送往哪里”，而不是“这份 I-PDU 表达了什么”。
+PduR 的路由关系由生成期配置的 PDU ID 和路由路径定义；配置了 Routing Group 时，可在运行期启用或禁用相应路径，但不会根据 Payload 内容动态选择目标。PduR 不解析信号、不修改 Payload，也不计算校验和。换句话说，它关注“这份 I-PDU 应送往哪里”，而不是“这份 I-PDU 表达了什么”。
 
-## Mechanism
+## 工作机制
 
-### PduR 通信链路
+### 通信链路
 
 在 AUTOSAR 通信栈中，可以把各模块理解成三个层次：
 
@@ -91,5 +91,11 @@ PduR 对 UDS 的 SID、DID、SubFunction 一无所知。它只是把 CanTp 提�
 
 #### Confirmation 和 Indication
 
-Indication：下层告诉上层，“我收到东西了”
-Confirmation：下层告诉上层，“你让我发的东西完成了”
+- **Indication**：下层通知上层已收到数据。
+- **Confirmation**：下层通知上层发送请求已完成。
+
+### 路由类型与资源边界
+
+IF 路由以完整 I-PDU 为单位转发；TP 路由则通过 `StartOfReception`、`CopyRxData`、`CopyTxData` 等接口协调分段数据传递。配置了 Gateway 时，PduR 还可能需要缓存或分段转发资源，其容量和并发能力受生成配置与实现约束。
+
+PduR 的 `PduId` 映射、上/下层模块引用、路由方向及 Routing Group 必须成套匹配。路由配置错误通常表现为发送 API 返回失败、接收回调未到达上层，或网关 PDU 无法转发；排查时应沿上下层 PDU ID 和路由路径逐段核对，而不是检查 Payload 语义。

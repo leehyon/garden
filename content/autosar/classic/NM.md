@@ -14,7 +14,7 @@ NM PDU 的发送周期、超时检测、Repeat Message、Ready Sleep、Prepare B
 
 ![[nm-stack.png]]
 
-## Mechanism
+## 工作机制
 
 ### 上下游接口
 
@@ -27,6 +27,16 @@ ComM 使用统一的 `NetworkHandleType` 请求网络启动、保持或释放，
 Nm 不直接控制 CAN、LIN 或 Ethernet 控制器，而是调用 BusNm 的标准接口。
 
 BusNm 通过 Nm 的统一回调上报状态。
+
+### 请求、释放与网络状态
+
+Nm 的 API 表达网络管理意图，不是控制器启停命令：
+
+- `Nm_NetworkRequest()`：本地需要保持网络通信，转交给对应 BusNm 发起或维持网络请求。
+- `Nm_NetworkRelease()`：本地不再需要保持网络；BusNm 仍需依据其他节点的请求、NM 定时器和协议状态决定何时休眠。
+- `Nm_PassiveStartUp()`：通知 BusNm 本地检测到网络活动并参与启动，不等价于建立持续的本地网络请求。
+
+因此，`Nm_NetworkRelease()` 返回后网络不一定立即休眠；应等待 BusNm 状态回调和 ComM 的模式反馈。BusNm 的周期函数负责协议状态机和 NM PDU 处理，Nm 统一层不替代这些协议定时逻辑。
 
 ### 主动网络请求与异步状态反馈
 
@@ -63,12 +73,8 @@ sequenceDiagram
     ComM-->>User: Communication mode available
 ```
 
-主动启动与被动启动的区别
-- `Nm_NetworkRequest()`：本地有通信需求，主动请求网络并保持网络唤醒
-- `Nm_PassiveStartUp()`：本地检测到远程网络活动，希望跟随网络启动，但不等价于建立长期本地网络需求
+### 网络协调器
 
-### Nm Coordinator
-
-Nm 先收集所有关联网络已具备休眠条件的证据，再根据不同 BusNm 的关网耗时启动不同的 Shutdown Timer，最终让 FlexRay 和 CAN 尽量在同一目标时间完成休眠。
+启用 Coordinator 时，Nm 跨关联通道汇总休眠条件，并依据各 BusNm 的协调配置推进关网定时与状态，减少网关 ECU 不同网络休眠时间不一致的问题。Coordinator 只负责跨网络协调，不替代各 BusNm 的协议状态机；目标时间和协调范围取决于配置。
 
 ![[nm-coordination.png]]

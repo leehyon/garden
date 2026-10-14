@@ -20,15 +20,15 @@ CanSM 的复杂性源于它必须同时协调三个并不等价的状态维度�
 - `Controller STARTED` 不等于网络已经进入 `FULL_COMMUNICATION`
 - `FULL_COMMUNICATION` 需要控制器、收发器和 PDU 路径均达到预期状态
 - `SILENT_COMMUNICATION` 的核心语义是允许接收、禁止发送，对应 PDU 模式通常为 `CANIF_TX_OFFLINE`
-- CanSM 管理的是逻辑网络
+- CanSM 按配置的 Network 管理逻辑网络；Network 与 CAN Controller、CanTrcv 的映射必须一致，且一个网络的模式不应被误当作整个 ECU 的唯一通信状态
 
-## Mechanism
+## 工作机制
 
 ### 上下游接口契约
 
 上游契约
 - **EcuM → CanSM**：EcuM 在 ECU 启动阶段调用 `CanSM_Init()`，并通过 `CanSM_StartWakeupSource()`、`CanSM_StopWakeupSource()`驱动唤醒验证。NeuSAR 要求 `CanSM_Init()`只能调用一次，且 Post-Build 配置未使用，因此 `ConfigPtr` 传入 `NULL_PTR`
-- **ComM → CanSM**：ComM 通过异步接口 `CanSM_RequestComMode()`提交 `NO`、`SILENT` 或 `FULL` 请求。`E_OK`只表示请求被接收，不表示物理网络已经完成切换。真正完成后，由 CanSM 调用 `ComM_BusSM_ModeIndication()`反馈
+- **ComM → CanSM**：ComM 通过 `CanSM_RequestComMode()`提交通信模式请求。`E_OK`只表示请求被接收，不表示物理网络已经完成切换。真正完成后，由 CanSM 调用 `ComM_BusSM_ModeIndication()`反馈实际模式
 - **OS/SchM → CanSM**：周期调用 `CanSM_MainFunction()`推进各网络状态机。模式请求、BusOff 事件和底层模式回调通常先被记录，再由后续 MainFunction 周期消费
 
 下游契约
@@ -54,6 +54,21 @@ CanSM 不是“调用即完成”的同步控制模块，而是一个典型的 *
 ### 状态机
 
 ![[cansm-state-machine.png]]
+
+### 模式切换与确认
+
+模式切换不是一次原子操作，而是由 CanSM 按配置分阶段推进：
+
+1. 接收 ComM 的目标模式，更新对应 Network 的请求状态。
+2. 依据目标模式进入 PRE_FULLCOM、PRE_NOCOM 等过渡状态，按配置控制 PDU 路径、Controller 和 Transceiver。
+3. 等待 CanIf/CanTrcv 的异步模式指示，并在 `CanSM_MainFunction()` 中处理超时或继续下一步。
+4. 到达稳定状态后，通过 `ComM_BusSM_ModeIndication()`发布实际通信模式；配置了 BswM 通知时，也同步发布 Network 状态。
+
+具体调用次序受配置、唤醒路径和硬件能力影响，不能只根据目标模式推断固定的 Controller/Transceiver 操作顺序。排查时应区分“请求已接受”“底层模式已确认”和“稳定态已通知”三个时点。
+
+### BusOff 恢复
+
+BusOff 通常由 CanIf 转发给 CanSM，随后由 FULLCOM 子状态机执行恢复，而不是在中断回调中直接完成整套切换。L1/L2 恢复使用不同的等待时间和重试阶段；实际恢复速度、重试次数及恢复失败后的行为由 CanSM 配置决定。BusOff 期间还要检查 PDU Mode、ComM 实际模式、Dem 事件状态和应用侧超时，避免把“控制器重新启动”误认为“网络已恢复”。
 
 ## 核心结论
 

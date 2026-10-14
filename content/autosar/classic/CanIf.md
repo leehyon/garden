@@ -8,7 +8,19 @@ CanIf 是 CAN 通信栈的软件适配与访问控制层。它解决两个核心
 
 CanIf 不是协议处理模块。它不解析 COM Signal，不执行 ISO-TP 分段重组，也不负责 BusOff 恢复策略。它只负责把上层 I-PDU 映射为 CAN L-PDU、把底层接收帧识别为 Rx PDU，并转发模式、收发和异常事件。
 
-## Mechanism
+## 工作机制
+
+### 三类模式的边界
+
+CanIf 同时暴露 Controller、Transceiver 和 PDU 三类模式控制，但它们控制的对象不同：
+
+|模式|控制对象|典型作用|
+|---|---|---|
+|Controller Mode|CAN 控制器|启动、停止或休眠控制器|
+|Transceiver Mode|物理收发器|切换收发器的正常、待机或休眠状态|
+|PDU Mode|CanIf 软件收发路径|允许、限制或禁止特定方向的 PDU 收发|
+
+因此，`STARTED` 不代表 PDU 已允许发送；`ONLINE` 也不代表硬件控制器已启动。CanSM 通常协调这些模式，并等待异步模式指示后再推进状态机。
 
 ### 接口契约
 
@@ -51,6 +63,12 @@ CanIf 不负责：
 - 硬件 Mailbox 调度和中断处理，属于 CanDrv
 - 应用层重发、端到端确认和业务超时
 
+### 接收路径
+
+接收时，CanDrv 将帧及接收硬件对象信息交给 CanIf。CanIf 根据 Controller、HRH、CanId 及相关配置匹配 Rx PDU，再调用该 PDU 配置的上层接收接口；若上层是 Com，接收通常经 PduR 转交给 `Com_RxIndication()`。
+
+这条路径不做信号解码或传输层重组：完整的普通 I-PDU 由上层处理；ISO-TP 长报文则由 CanTp 负责分段与重组。Rx PDU 的 Handle、CanId、DLC、Controller 和上层 PduId 映射必须来自同一套一致的生成配置。
+
 ### 发送缓存机制
 
 当 `CanIfPublicTxBuffering = true` 时：
@@ -60,7 +78,9 @@ CanIf 不负责：
 4. 某个硬件报文发送完成后，CanDrv 调用 `CanIf_TxConfirmation()`
 5. CanIf 在完成上层确认的同时，尝试从缓存取出下一条报文再次调用 `Can_Write()`
 
-## Sequence
+该缓存是 CanIf 的软件排队机制，不是无限队列；容量、队列策略和请求被接受时的返回值取决于具体配置与实现。队列满或缓存关闭时，上层必须根据返回结果决定是否重试。
+
+## 典型流程
 
 ### ECU 初始化并上线通信
 
