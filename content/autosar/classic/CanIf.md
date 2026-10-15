@@ -2,7 +2,7 @@
 title: CAN Interface
 ---
 
-CanIf 是 AUTOSAR Classic CAN 通信栈中的适配与访问控制层。它向上为 [[PduR]]、[[CanTp]]、[[CanNm]]、[[Xcp]]、[[CanSM]] 等模块提供统一的收发和模式管理接口；向下将抽象 PDU 映射到具体 CAN Controller、Hardware Object、CanId 和底层驱动。
+CanIf 是 AUTOSAR Classic CAN 通信栈中的适配与访问控制层。它向上为 [[PduR]]、CanTp、CanNm、Xcp、[[CanSM]] 等模块提供统一的收发和模式管理接口；向下将抽象 PDU 映射到具体 CAN Controller、Hardware Object、CanId 和底层驱动。
 
 CanIf 的核心职责是维护这层静态映射，并控制 PDU 是否可以通过软件路径收发。它不解析 COM Signal、不执行 ISO-TP 分段重组，也不负责 BusOff 恢复策略。
 

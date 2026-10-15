@@ -111,13 +111,16 @@ sequenceDiagram
         end
 
         alt 读取成功
-            EaFee-->>NvM: MEMIF_JOB_OK
+            EaFee-->>MemIf: MEMIF_JOB_OK
+            MemIf-->>NvM: MEMIF_JOB_OK
             Note over NvM: 此时 DataBuffer 中的数据才可使用
         else 读取失败
-            EaFee-->>NvM: MEMIF_JOB_FAILED
+            EaFee-->>MemIf: MEMIF_JOB_FAILED
+            MemIf-->>NvM: MEMIF_JOB_FAILED
             Note over NvM: NvM 执行重试、恢复或错误处理
         else Block 无效或数据不一致
-            EaFee-->>NvM: MEMIF_BLOCK_INVALID /<br/>MEMIF_BLOCK_INCONSISTENT
+            EaFee-->>MemIf: MEMIF_BLOCK_INVALID /<br/>MEMIF_BLOCK_INCONSISTENT
+            MemIf-->>NvM: MEMIF_BLOCK_INVALID /<br/>MEMIF_BLOCK_INCONSISTENT
             Note over NvM: NvM 使用默认值、冗余副本或上报故障
         end
     end

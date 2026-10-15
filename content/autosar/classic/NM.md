@@ -4,7 +4,7 @@ title: Network Management Interface
 
 Nm 是 [[ComM]] 与各类 BusNm 之间的统一网络管理接口层；在配置启用时，也负责多通道网络休眠协调。它解决两个核心问题：
 
-- 屏蔽总线差异：ComM 不需要分别理解 [[CanNm]]、[[LinNm]]、UdpNm 或 GenericNm 的接口
+- 屏蔽总线差异：ComM 不需要分别理解 CanNm、LinNm、UdpNm 或 GenericNm 的接口
 - 协调多网络休眠：网关 ECU 同时挂接多条总线时，Nm 确保各通道满足条件后，以协调方式进入 Bus-Sleep Mode
 
 这里的 Nm 接口层不等于总线上的 NM 协议。NM PDU 的发送周期、超时检测、Repeat Message、Ready Sleep、Prepare Bus Sleep 等总线相关行为仍由 CanNm、LinNm、UdpNm 等 BusNm 实现。Nm 接口层主要负责：

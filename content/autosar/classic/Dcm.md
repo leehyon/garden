@@ -35,7 +35,7 @@ DSP：执行具体 UDS/OBD 服务，调用 SWC 或其他 BSW
 - DID: `ReadData`, `WriteData`, `ConditionCheckRead`
 - RID: `Start`, `Stop`, `RequestResult`
 - Security: `GetSeed`, `CompareKey`
-- Mode Switch: Session, ECU Reset, Communication Control
+- 诊断服务与模式联动：Session Control、ECU Reset、Communication Control（分别涉及 Dcm 会话处理、EcuM 复位流程及 BswM/ComM 通信控制，并非同一种 AUTOSAR Mode-Switch 接口）
 
 同步接口在本次调用中返回最终结果；配置为异步的接口首次以 `DCM_INITIAL` 调用，若返回 `DCM_E_PENDING`，Dcm 会在后续处理周期中以 `DCM_PENDING` 继续调用。应用回调应按操作状态区分首次执行、继续执行和取消处理，并避免重复执行不可重复的副作用。
 
