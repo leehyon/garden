@@ -569,6 +569,8 @@ flowchart TB
 
 ### 座舱 SOC 跨平台架构
 
+![[soc-cockpit-autosar-architecture.png]]
+
 这是一套座舱 SoC 的跨平台车辆通信架构：
 - AAOS App 通过 Vehicle Property 和定制 VHAL 接入，VHAL 再通过 gRPC 连接 QNX 上的 AUTOSAR Adaptive Gateway
 - Adaptive Applications 使用 SOME/IP、PDU over UDP 和原始 UDP 与外部 Classic MCU 通信，同时通过 ED、Event Emitter 和 Gateway 完成数据分发、协议转换、多帧处理及去重，并由 Test AA 和外部 Test Server 支持分层测试

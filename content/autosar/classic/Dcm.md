@@ -12,7 +12,7 @@ Dcm 不负责 CAN 分帧重组、不直接操作 CAN 控制器，也通常不持
 
 ![[dcm-overview.png]]
 
-## Mechanism
+## 工作机制
 
 ### 内部分层
 
@@ -31,12 +31,13 @@ DSP：执行具体 UDS/OBD 服务，调用 SWC 或其他 BSW
 ### 上层业务契约
 
 对于 DID、RID 和安全访问，Dcm 通过生成回调或 RTE Mapping 调用应用：
+
 - DID: `ReadData`, `WriteData`, `ConditionCheckRead`
 - RID: `Start`, `Stop`, `RequestResult`
 - Security: `GetSeed`, `CompareKey`
 - Mode Switch: Session, ECU Reset, Communication Control
 
-同步接口必须一次返回最终结果；异步接口第一次以 `DCM_INITIAL` 调用，返回 `DCM_E_PENDING` 后，Dcm 在后续 `Dcm_MainFunction` 中以 `DCM_PENDING` 再次调用。
+同步接口在本次调用中返回最终结果；配置为异步的接口首次以 `DCM_INITIAL` 调用，若返回 `DCM_E_PENDING`，Dcm 会在后续处理周期中以 `DCM_PENDING` 继续调用。应用回调应按操作状态区分首次执行、继续执行和取消处理，并避免重复执行不可重复的副作用。
 
 ### 下层输入契约
 
@@ -66,13 +67,42 @@ Dcm 组织响应后，通过 PduR 发起传输，TP 随后调用：
 - **PduR/TP**：诊断 N-SDU 接收和响应发送
 - **ComM**：诊断激活时保持网络通信
 - **Dem**：DTC 读取、清除和 DTC Setting
-- **NvM**：保存复位信息、安全失败计数、DID 或 ROE 状态
+- **NvM**：按配置保存 Dcm 相关持久数据；DID 业务数据通常由对应应用或服务回调负责其持久化
 - **BswM**：执行 `0x28` 通信控制
 - **RTE/SWC**：DID、Routine、模式切换和应用逻辑
 - **Det**：报告未初始化、空指针、参数和缓冲区越界等开发错误
 - **Csm/KeyM**：支持 `0x29` 认证服务
 
-## Sequence
+### Dcm 与 Dem 的职责交互
+
+Dcm 负责 UDS 服务层的会话/安全访问检查、请求参数校验和响应编码；Dem 管理 DTC、状态位及诊断记录。以 `0x19 ReadDTCInformation` 和 `0x14 ClearDiagnosticInformation` 为例，Dcm 处理协议与访问条件，再通过 Dem 接口读取或清除诊断信息。
+
+```mermaid
+sequenceDiagram
+    participant Tester as 诊断仪
+    participant TP as TP/PduR
+    participant Dcm
+    participant Dem
+
+    Tester->>TP: UDS 0x19 或 0x14 请求
+    TP->>Dcm: 完整诊断 N-SDU
+    Dcm->>Dcm: 校验 SID、长度、寻址、Session/Security
+    alt 0x19 ReadDTCInformation
+        Dcm->>Dem: 按子功能查询 DTC/状态/记录
+        Dem-->>Dcm: 返回配置范围内的诊断信息
+        Dcm->>Dcm: 编码 0x59 响应
+    else 0x14 ClearDiagnosticInformation
+        Dcm->>Dem: 请求清除指定 DTC 范围
+        Dem-->>Dcm: 返回操作结果
+        Dcm->>Dcm: 编码肯定或否定响应
+    end
+    Dcm->>TP: 经 PduR 提交响应
+    TP-->>Tester: UDS 响应
+```
+
+Dem 返回的查询结果受 DTC 配置、状态掩码、故障内存和记录可用性影响；清除请求也不意味着任意非易失存储写入都已在同一时刻物理完成。
+
+## 典型流程
 
 ### 初始化及 NvM 数据恢复
 
@@ -114,7 +144,7 @@ sequenceDiagram
                 Dcm->>Dcm: 进入可服务状态
             else 读取失败
                 NvM-->>Dcm: Error
-                Dcm->>Dcm: 保持初始化失败或禁止功能
+                Dcm->>Dcm: 按配置采用默认值、限制相关功能或上报错误
             end
         else 无持久化数据
             Dcm->>Dcm: 直接进入Idle
@@ -122,7 +152,7 @@ sequenceDiagram
     end
 ```
 
-### 普通同步 DID 读取
+### 同步 DID 读取
 
 ```mermaid
 sequenceDiagram
@@ -178,12 +208,12 @@ sequenceDiagram
 - `Dcm_CopyRxData` 只做数据搬运，不执行 0x22
 - DSD 处理通用权限，DSP 处理 DID 特有权限与数据访问
 - `ConditionCheckRead` 与 `ReadData` 是两个不同阶段
-- 肯定响应 SID 为请求 SID 加 `0x40`
+- 适用的肯定响应 SID 通常为请求 SID 加 `0x40`
 - 请求真正结束于 `Dcm_TpTxConfirmation`
 
 ### SecurityAccess 失败
 
-每个安全等级有独立失败计数。密钥比较失败或重复请求同一安全等级 Seed 时，失败计数可能增加；达到 `DcmDspSecurityNumAttDelay` 后，进入由 `DcmDspSecurityDelayTime` 定义的锁定期。失败计数可通过 `DcmDspSecurityBlockIdRef` 持久化到 NvM。
+安全访问通常按安全等级维护失败尝试计数。密钥比较失败的计数规则、锁定条件和持久化方式由 Dcm 配置及安全回调实现决定；达到 `DcmDspSecurityNumAttDelay` 所配置的门限后，可进入由 `DcmDspSecurityDelayTime` 配置的延时期。配置 `DcmDspSecurityBlockIdRef` 时，相关失败计数可持久化到 NvM。
 
 ```mermaid
 sequenceDiagram

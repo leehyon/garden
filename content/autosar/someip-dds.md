@@ -2,19 +2,18 @@
 title: SOME/IP and DDS
 ---
 
-当汽车电子电气（E/E）架构从传统的面向信号（Signal-Oriented）向面向服务（Service-Oriented Architecture, SOA）演进时，车载网络需要具备强通信抽象、动态服务发现与异构系统解耦能力的中间件底座。
+当汽车电子电气（E/E）架构从面向信号逐步演进到面向服务（Service-Oriented Architecture, SOA）时，通信中间件需要提供服务抽象、数据分发、服务发现和异构节点互操作能力。
 
-在现代跨域与中央计算架构中，存在两大主流服务化中间件：
-- **SOME/IP（Scalable service-Oriented MiddlewarE over IP）**：AUTOSAR 联盟原生定制的标准协议，针对嵌入式车控 ECU 深度优化，天生契合 AUTOSAR Classic / Adaptive 生态，支撑控制面方法调用（RPC）、事件通知及信号到服务的网关桥接；
-- **DDS（Data Distribution Service）**：由 OMG 制定的以数据为中心（Data-Centric）的发布/订阅实时通信总线，凭借丰富的服务质量（QoS）策略与极高的数据吞吐能力，在自动驾驶（AD/ADAS）、智能座舱多传感器融合等数据面场景被广泛采用。
+本文聚焦两种常见的车载通信技术：
 
-两者的技术哲学截然不同：SOME/IP 偏向“轻量与契约化”，重在严格受控的方法调用与状态通知；DDS 偏向“解耦与数据自治”，重在海量高频数据的分发契约与时序保障。现代整车电子架构通常采用「控制面走 SOME/IP + 数据面走 DDS」的双轨协同模式。
+- SOME/IP（Scalable service-Oriented MiddlewarE over IP）：由 AUTOSAR 规范定义的 IP 通信协议，支持方法调用、事件通知、属性访问及服务发现，可集成于 Classic/Adaptive 等不同系统架构。
+- DDS（Data Distribution Service）：由 OMG 定义的以数据为中心的发布/订阅标准，包含丰富的 QoS 策略；DDSI-RTPS 是常见的互操作线协议，具体实现和传输能力依供应商产品而异。
 
-本文将从协议报文、服务发现状态机、序列化陷阱、分段传输、DDS QoS 决策、E2E 安全防护到实车网络调试，逐层进行工程级剖析。
+两者的抽象模型不同：SOME/IP 以服务、方法和事件为核心；DDS 以 Topic、DataWriter/DataReader 和 QoS 契约为核心。控制面使用 SOME/IP、数据面使用 DDS 是一种可行的架构选择，并非所有车辆或系统的固定规则。本文介绍协议报文、服务发现、序列化、分段传输、QoS、E2E 保护和网络诊断中的关键概念。
 
 ## SOME/IP 协议规范与报文拓扑
 
-SOME/IP 报文由 **16 字节固定头部（Header）** 与 **变长载荷（Payload）** 组成。头部结构对齐与字段定义如下：
+SOME/IP 报文由 ==16 字节固定头部==（Header） 与 ==变长载荷==（Payload） 组成。头部结构对齐与字段定义如下：
 
 ```text
  0                   1                   2                   3
@@ -43,10 +42,10 @@ SOME/IP 报文由 **16 字节固定头部（Header）** 与 **变长载荷（Pay
    - **Method / Event ID (16 bit)**：
      - `0x0000 ~ 0x7FFF`：**方法调用（Method）**（最高位为 0）；
      - `0x8000 ~ 0xFFFF`：**事件广播（Event）**（最高位为 1，即 `0x8000 | Event_ID`）。
-2. **Length (32 bit)**：表示从 `Request ID` 起始至报文末尾的字节总数。
+2. **Length (32 bit)**：表示从 `Request ID` 字段开始到报文末尾的字节数，即固定头部后 8 字节及载荷长度之和。
 3. **Request ID (32 bit)**：用于多客户端并发请求的应答匹配。
    - **Client ID (16 bit)**：区分发起请求的调用端或 ECU 分区；
-   - **Session ID (16 bit)**：递增序列号，用于检测请求/响应丢包与响应乱序。
+   - **Session ID (16 bit)**：客户端用于区分请求事务的标识，常按请求递增；它不是通用的网络丢包或报文乱序检测机制。
 4. **Message Type (8 bit)**：定义交互语义，其中 **bit 5 为 TP 标志位（0x20）**：
 
 | 类型编码 | 语义标识 | 含义说明 |
@@ -62,62 +61,70 @@ SOME/IP 报文由 **16 字节固定头部（Header）** 与 **变长载荷（Pay
 | **0x23** | TP_RESPONSE | 分段传输的正常响应 |
 | **0x24** | TP_ERROR | 分段传输的错误响应 |
 
-5. **Return Code (8 bit)**：仅在 RESPONSE / ERROR 报文中有效（请求报文默认填 `0x00`）：
+5. **Return Code (8 bit)**：用于表达处理结果；标准请求报文通常填 `0x00`。常见标准值包括：
    - `0x00 E_OK`：调用成功；
    - `0x01 E_NOT_OK`：常规错误；
-   - `0x0A E_UNKNOWN_SERVICE`：未注册的 Service ID；
-   - `0x0B E_UNKNOWN_METHOD`：未注册的 Method/Event ID；
-   - `0x0C E_NOT_READY`：服务未就绪；
-   - `0x0D E_NOT_REACHABLE`：端点不可达。
+   - `0x02 E_UNKNOWN_SERVICE`：服务未知；
+   - `0x03 E_UNKNOWN_METHOD`：方法未知；
+   - `0x04 E_NOT_READY`：服务未就绪；
+   - `0x05 E_NOT_REACHABLE`：端点不可达；
+   - `0x06 E_TIMEOUT`：处理超时；
+   - `0x07 E_WRONG_PROTOCOL_VERSION`、`0x08 E_WRONG_INTERFACE_VERSION`：协议/接口版本不匹配；
+   - `0x09 E_MALFORMED_MESSAGE`、`0x0A E_WRONG_MESSAGE_TYPE`：报文格式或类型错误。
+
+实际返回码还可能受 SOME/IP 版本、Profile 和实现扩展影响；抓包分析应以对应规范版本及服务端实现为准。
 
 ### Field 的复合三态机制
 
-除纯粹的 Method（动作）与 Event（通知）外，SOME/IP 还定义了 **Field（属性字段）**。一个完整的 Field 包含三种标准交互通道：
-- **Getter**（Method ID $\le$ 0x7FFF）：客户端主动拉取当前属性值（Request-Response）；
-- **Setter**（Method ID $\le$ 0x7FFF）：客户端修改当前属性值（Request-Response）；
-- **Notifier**（Event ID $\ge$ 0x8000）：属性值发生变化时，服务端主动推送到事件组。
+除 Method（方法）和 Event（事件）外，SOME/IP 服务接口还可定义 **Field（属性）**。典型 Field 由三类接口组成，具体 Method/Event ID 由服务接口定义分配：
+
+- **Getter**：客户端通过请求/响应读取属性值。
+- **Setter**：客户端通过请求/响应修改属性值。
+- **Notifier**：服务端通过 Event 在属性变化或配置的发布时机通知订阅者。
 
 ## 服务发现 SOME/IP-SD 协议与状态机时序
 
-SOME/IP-SD（Service Discovery）是实现 SOA 动态拓扑的基石。它基于 **UDP 组播**（全车默认标准端口 `30490`，IPv4 组播地址通常约定为 `224.244.224.245`），用于：
+SOME/IP-SD（Service Discovery）用于动态发布和发现服务。常见 AUTOSAR 配置使用 UDP 组播，端口 `30490` 和 IPv4 组播地址 `224.244.224.245` 是常见默认值；实际地址、端口、单播/组播方式和发送周期由网络配置决定。主要交互包括：
 1. 发布服务可用性（Offer Service / Stop Offer）；
 2. 请求查找目标服务（Find Service）；
 3. 订阅/退订特定事件组（Subscribe Eventgroup / Stop Subscribe）。
 
 ### SD 报文层次拓扑
 
-SD 报文本身就是标准的 SOME/IP 报文（其 `Service ID = 0xFFFF`, `Method ID = 0x8100`, `Message Type = 0x02`），其 Payload 细分为：
-- **Flags**：重启标志（Reboot Flag）、单播标志（Unicast Flag）；
-- **Entries Array**：容纳多个服务声明或订阅条目（Type 1: Service Entry; Type 2: Eventgroup Entry）；
-- **Options Array**：承载网络物理端点（IPv4/IPv6 Endpoint Option，包含 IP 地址、UDP/TCP 端口号、L4 协议）。
+SD 报文本身就是标准的 SOME/IP 报文（其 `Service ID = 0xFFFF`, `Method ID = 0x8100`, `Message Type = 0x02`），其 Payload 包含：
 
-### 服务提供方四阶段生命周期状态机
+- **Flags**：包含 Reboot Flag、Unicast Flag 等控制位。
+- **Entries Array**：包含 FindService、OfferService、SubscribeEventgroup、SubscribeEventgroupAck 等不同类型条目；条目携带服务/实例/版本、TTL 和 Options 引用等信息。
+- **Options Array**：携带 IPv4/IPv6 Endpoint、Configuration 等选项；端点选项可包含 IP 地址、端口和 L4 协议。
+
+### 服务提供方生命周期状态机
 
 ```mermaid
 stateDiagram-v2
     [*] --> InitialWaitPhase : ECU 上电就绪
     InitialWaitPhase --> RepetitionPhase : 延时 InitialDelay 耗尽 (防上电风暴)
     RepetitionPhase --> MainPhase : 重复 RepetitionFactor 次 (指数退避)
-    MainPhase --> StopPhase : 服务下线注销
-    StopPhase --> [*] : 发送 TTL=0 的 StopOffer
+    MainPhase --> StopPhase : 服务停止或实例下线
+    StopPhase --> [*] : 按配置发送 TTL=0 的 StopOffer
 
     note right of InitialWaitPhase
-      打散多节点同时上电引发的
-      网络组播雪崩与交换机丢包
+      延迟和抖动参数由配置决定
     end note
 
     note right of RepetitionPhase
-      快速发布，降低初次连接等待
-      BaseDelay × 2^n 指数衰减
+      重复 Offer 的次数与退避参数
+      由 SD 配置决定
     end note
 
     note right of MainPhase
-      进入稳态，以固定周期 (如 1s)
-      持续广播 Offer 保活 (TTL 3s)
+      按配置周期刷新 Offer，
+      TTL 需覆盖刷新间隔和网络抖动
     end note
 ```
 
-### 服务消费方订阅与初始事件时序（时序陷阱破局）
+这些阶段描述的是常见的服务提供方 SD 状态机。具体定时参数、重试策略和服务状态变化行为由所用 AUTOSAR 版本及实现配置决定。
+
+### 服务消费方订阅与事件接收
 
 ```mermaid
 sequenceDiagram
@@ -126,62 +133,54 @@ sequenceDiagram
     participant Server as Provider (Server)
 
     Note over Server: Server 初始化就绪，进入 MainPhase
-    Server->>Client: SD: OfferService (含 IP:Port, TTL=3s)
+    Server->>Client: SD: OfferService (含端点选项和 TTL)
     Note over Client: 收到 Offer，建立路由表项
-    Client->>Server: SD: SubscribeEventgroup (EventgroupID, TTL=3s)
-    Server-->>Client: SD: SubscribeEventgroupAck (订阅成功应答)
+    Client->>Server: SD: SubscribeEventgroup (EventgroupID, requested TTL)
+    Server-->>Client: SD: SubscribeEventgroupAck (接受/拒绝及授予 TTL)
     rect rgb(235, 245, 255)
-    Note over Server,Client: 核心机制：Initial Event 强制推送
-    Server->>Client: SOME/IP NOTIFICATION (事件初始快照值)
+    Note over Server,Client: 若配置了 Initial Value/Initial Event，提供当前值
+    Server->>Client: SOME/IP NOTIFICATION (配置的初始事件)
     end
-    Note over Server,Client: 稳态运行：当数据变化或周期到达时发布更新
+    Note over Server,Client: 稳态发布遵循事件和 Eventgroup 配置
     Server->>Client: SOME/IP NOTIFICATION (新事件数据)
 ```
 
-工程避坑点：
-1. **订阅早于 Offer 的丢事件问题**：若客户端过早发送 Subscribe，服务端可能因内部未就绪而回复 Nack 或丢弃，导致客户端进入死锁。务必开启客户端的重订阅机制与订阅超时重发计数器；
-2. **Initial Event 必达原则**：服务端收到 SubscribeEventgroupAck 后，**必须立刻发送一次当前事件组所有事件的最新缓存快照**。否则消费端必须等到物理世界下一次状态跳变才能获知当前车速或档位，造成启动数据黑洞。
+订阅应以服务发现结果和服务端对 Eventgroup 的应答为准。收到 Ack 表示订阅请求按应答内容被接受，不应据此假定事件组中的每个 Event 都会立即发送当前值；初始值行为、周期/变化发布和重订阅机制均由服务定义及配置决定。客户端还应处理 Nack、TTL 到期、Stop Offer 和服务重新上线。
 
 ## 二进制序列化与跨平台对齐陷阱
 
-SOME/IP 采用静态编译期绑定的二进制序列化规范，**报文中不携带任何字段名或自描述 Meta 标签**（极度追求嵌入式带宽利用率与 CPU 效率）。
+SOME/IP 报文头提供协议级字段，但 Payload 通常按服务接口和序列化配置编码，不携带通用的字段名或完整自描述 Schema。接收端必须使用兼容的接口定义及序列化规则。
 
 ### 核心序列化规则
 
-1. **字节序（Endianness）**：默认采用 **大端序（Big-Endian / Network Byte Order）**，ARXML 中可按信号配置为小端序；
-2. **结构体对齐（Alignment）**：SOME/IP 规范要求按照字段成员自身大小自然对齐（8/16/32/64 bit 对齐），必要时插入 Padding 空字节；
-3. **变长类型（String & Dynamic Array）**：
-   - 必须前置 **Length Field（1/2/4 字节可选，ARXML 中显式配置）**；
-   - String 类型支持 ASCII、UTF-8、UTF-16BE/LE，可配置是否包含 `\0` 结束符与 BOM 标头；
-4. **可选字段（Optional Members）**：通过 TLV（Tag-Length-Value）结构编码，未传递的字段不占用带宽。
+1. **字节序**：SOME/IP Header 按协议定义的网络字节序编码；Payload 的元素字节序、长度字段和对齐由接口/Transformer 序列化规则确定，不能简单套用 C 结构体布局。
+2. **对齐与填充**：序列化器可能按数据类型和配置插入 Padding；其规则不是目标 CPU 的 C ABI 自然对齐规则。
+3. **变长类型**：字符串、数组等的长度字段宽度、编码及终止符行为由接口类型和序列化配置决定，通信双方必须一致。
+4. **可选成员**：可选数据的编码方式取决于所使用的 SOME/IP Transformer/序列化规范；不要假定所有接口都使用同一种 TLV 格式。
 
-严重工程反例：C 语言结构体 `memcpy` 灾难
+工程反例：直接把 C 结构体内存镜像当作线上报文
 
 ```c
-/* 错误代码示范：试图通过 memcpy 直接发包/解包 */
+/* 不可移植的做法：不能假定结构体内存布局就是线上序列化布局 */
 struct VehicleState {
     uint16_t speed;       /* Offset 0, 2 字节 */
     uint8_t  gear;        /* Offset 2, 1 字节 */
-    /* 警告：在 32/64 位 CPU 默认 ABI 下，编译器将在此自动填充 1 字节 padding */
+    /* 编译器可能在此插入 Padding */
     uint32_t timestamp;   /* Offset 4, 4 字节 */
 }; /* 总长 8 字节 */
 ```
 
-灾难诱因：
-- 若开发人员误以为 SOME/IP 序列化等于 C 结构体内存镜像，直接将指针 `memcpy` 送入网络栈：
-  - **字节序错乱**：ARM Cortex-M / x86 为小端序，直接发送导致 0x0100 变成 0x0001；
-  - **编译器 ABI 差异**：Linux 64 位平台与 MCU 32 位编译器的 Padding 规则、位域（Bitfield）高低位排列差异巨大；
-- **正解**：必须通过 AUTOSAR 工具链生成专用的 Transformer 序列化/反序列化函数（逐字段字节移位流式拼接），绝对杜绝零拷贝野指针强制类型转换。
+直接 `memcpy` 可能造成字节序、Padding、位域布局或版本差异问题。应使用项目生成的 Transformer/序列化接口，或严格遵循接口定义逐字段编码；只有在序列化格式、内存布局和平台约束均经过验证时，才可采用专门设计的零拷贝方案。
 
 ## SOME/IP-TP 大包分段传输
 
-标准以太网链路的 MTU 通常为 1500 字节，扣除 IP 头部（20 字节）与 UDP 头部（8 字节），单个 UDP 数据包的安全 Payload 约为 **1472 字节**。
+以太网 IP MTU 为 1500 字节时，IPv4 UDP 数据报可用 UDP Payload 上限通常为 1472 字节；这还要容纳 SOME/IP Header 和（启用 TP 时的）TP Header。忽略 IP Options、IPv6 扩展头等额外开销时，IPv4 SOME/IP-TP 单段的应用数据上限约为 `1500 - 20 - 8 - 16 - 4 = 1452` 字节。实际限制还受网络 MTU、传输协议和配置的 PDU 长度约束。
 
-当传输高精定位地图、座舱多媒体诊断元数据、点云概要等超长报文时，直接依赖 IP 层分片极其脆弱（任何一个分片丢包会导致整个 UDP 包重组失败）。因此，AUTOSAR 引入了应用层的 **SOME/IP-TP** 分段传输协议。
+对于超过单个报文承载能力的 SOME/IP 消息，可按配置使用 SOME/IP-TP 分段；UDP/IP 分片则依赖 IP 层重组，任一 IP 分片丢失都会导致对应数据报无法交付。SOME/IP-TP 的重组、超时和丢弃策略由通信栈实现配置决定。
 
 ### TP 报文头结构
 
-当 SOME/IP Header 的 Message Type 包含 TP 标志（`0x20`）时，在 Payload 头部自动插入 4 字节 TP Header：
+启用 SOME/IP-TP 时，Message Type 的 TP 标志位（`0x20`）置位，并在 SOME/IP 消息中携带 4 字节 TP Header：
 
 ```text
  0                   1                   2                   3
@@ -195,9 +194,9 @@ struct VehicleState {
 - **Reserved (3 bit)**：保留位，必须填 `000`；
 - **More Segments Flag (1 bit)**：`1` 表示后续仍有分段；`0` 表示这是最后一个分段。
 
-分段拆解计算实例（传输 3200 字节大数据包）
+分段计算示例（3200 字节应用数据）
 
-假定设定单包最大分段限制为 1400 字节（必须向下对齐为 16 的倍数，$\lfloor 1400 / 16 \rfloor \times 16 = 1392$ 字节）：
+假设配置的单段应用数据上限为 1400 字节，并按 16 字节边界选取非末段长度，则每个非末段最多承载 `floor(1400 / 16) × 16 = 1392` 字节：
 
 | 分段序号 | 数据长度 (Bytes) | 字节区间 | TP Offset 字段值 | More Flag | Message Type |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -205,45 +204,46 @@ struct VehicleState {
 | **Segment 2** | 1392 | 1392 ~ 2783 | `87` ($1392 / 16$) | `1` | TP_NOTIFICATION (`0x22`) |
 | **Segment 3** | 416 | 2784 ~ 3199 | `174` ($2784 / 16$) | `0` (末包) | TP_NOTIFICATION (`0x22`) |
 
-> **工程实战告警**：接收端重组定时器（Reassembly Timer）需严格匹配网络最差延迟抖动。若在超时窗口内丢失任一中间段，必须果断重置接收缓存并丢弃，防止重组缓冲区发生内存泄漏。
+接收端需配置合理的重组超时、最大消息长度和缓冲区资源。发生超时、重复/重叠分段或长度不一致时，应按协议栈定义释放/复位重组上下文并报告错误；SOME/IP-TP 本身不应被当作可靠重传机制。
 
 ## DDS 架构深度与 QoS 服务质量模型
 
-DDS 是由 OMG 维护的开放式数据分发标准。与 SOME/IP 的“面向服务与 RPC 代理”不同，DDS 构建在 **DCPS（以数据为中心的发布-订阅）** 与 **全局分布式数据空间（Global Data Space）** 哲学之上。
+DDS 是由 OMG 维护的开放式数据分发标准。与 SOME/IP 的服务/方法/事件模型不同，DDS 以 **DCPS（Data-Centric Publish-Subscribe）** 为核心，通过 Topic、发布者和订阅者交换强类型数据。所谓“全局数据空间”是编程抽象，不代表所有实现都共享同一物理内存或网络。
 
 ### DDS 核心实体拓扑
 
-- **DomainParticipant**：接入逻辑数据总线的隔离域入口（不同 Domain ID 间网络彻底隔离）；
-- **Topic**：强类型化的数据主题（由 TopicName + IDL 结构体唯一确定）；
+- **DomainParticipant**：在指定 Domain 中创建 DDS 实体的入口；Domain ID 用于逻辑隔离和发现匹配，不等于物理网络隔离。
+- **Topic**：由 Topic 名称和数据类型共同描述的强类型数据通道；类型信息通常由 IDL 或等效类型定义生成。
 - **DataWriter / DataReader**：独立的数据发布端点与订阅端点；
-- **Publisher / Subscriber**：管理一组 DataWriter/DataReader 的工厂实体与 QoS 策略聚合容器。
+- **Publisher / Subscriber**：分别管理一组 DataWriter/DataReader 及其相关行为和 QoS。
 
 ### 核心 QoS 策略矩阵与 RxO 协商机制
 
-DDS 之所以统治智驾领域，源于其支持数十种微秒级的 **QoS（Quality of Service）服务质量策略**。许多关键策略遵循 **RxO（Requested vs Offered）契约协商规则**：订阅端请求的严格程度（Requested）不能超过发布端所能承诺的程度（Offered），否则双方匹配失败，无法建立链路。
+DDS 提供多种 **QoS（Quality of Service）策略**，用于表达可靠性、历史数据、时限和存活性等要求。部分策略在 DataWriter/DataReader 匹配时遵循 **RxO（Requested vs Offered）规则**：Writer 提供的能力必须满足 Reader 请求，否则端点不能匹配。兼容关系按各策略定义，不能统一概括成“数值越大越好”。
 
 | QoS 策略名 | 核心枚举 / 参数 | 物理语义与工程应用场景 | RxO 约束 |
 | :--- | :--- | :--- | :--- |
-| **RELIABILITY** | `BEST_EFFORT` / `RELIABLE` | 数据可靠性。高频点云/相机帧用 Best Effort；核心控制指令/状态机跳转必须用 Reliable | **严格遵循**<br/>Offered $\ge$ Requested |
-| **DURABILITY** | `VOLATILE`<br/>`TRANSIENT_LOCAL`<br/>`TRANSIENT` | 晚加入者能否获取历史数据。状态量（如校准参数）必须配 `TRANSIENT_LOCAL`，确保后启动的节点上线立刻获悉最新值 | **严格遵循**<br/>Offered $\ge$ Requested |
-| **HISTORY** | `KEEP_LAST(depth)`<br/>`KEEP_ALL` | 节点本地队列缓存深度。高频传感器通常配置 `KEEP_LAST(1)`，避免队列积压老旧数据导致感知滞后 | 节点私有，无 RxO |
-| **DEADLINE** | 期望数据更新周期（如 `10ms`） | 若发布者未在规定时间内发送、或订阅者未在限定内收到，DDS 自动触发超时回调报警（死人舵监控） | **严格遵循**<br/>Offered $\le$ Requested |
-| **LIVELINESS** | `AUTOMATIC`<br/>`MANUAL_BY_PARTICIPANT` | 节点存活心跳侦测。在租约时长（Lease Duration）内未续约，自动判定节点离线并上报异常 | **严格遵循** |
-| **OWNERSHIP** | `SHARED` / `EXCLUSIVE` | 排他性写入。配合 `OwnershipStrength`，可实现主控计算单元与备用安全单元的**毫秒级零丢包热备切换** | **严格匹配** |
-| **TRANSPORT** | UDPv4 / SHM (共享内存) / TCP | 跨进程/跨 SOC 传输通道。同 SOC 内部通过共享内存（SHM）实现零拷贝，跨域走 UDP | 节点私有 |
+| **RELIABILITY** | `BEST_EFFORT` / `RELIABLE` | 选择尽力交付或可靠交付；重传/缓存成本及端到端时延需结合负载评估 | Offered 必须满足 Requested |
+| **DURABILITY** | `VOLATILE`、`TRANSIENT_LOCAL`、`TRANSIENT` 等 | 控制新匹配 Reader 是否能获得历史样本。`TRANSIENT_LOCAL` 的历史数据由仍存活的 Writer 保留；更持久的行为还需要相应服务/实现支持 | Offered 持久性等级不得低于 Requested |
+| **HISTORY** | `KEEP_LAST(depth)` / `KEEP_ALL` | 控制每个实例保留样本的历史策略；还受 `RESOURCE_LIMITS` 等资源策略制约。`KEEP_LAST(1)` 适合只关心最新值的部分流，不适用于所有数据 | 不属于 RxO 兼容策略 |
+| **DEADLINE** | Writer Offered / Reader Requested 周期 | 表达预期最大更新间隔；Writer 提供周期应不大于 Reader 请求周期。违约通过状态/监听器等机制报告，应用需处理状态事件 | Offered period $\le$ Requested period |
+| **LIVELINESS** | `AUTOMATIC` / `MANUAL_BY_PARTICIPANT` / `MANUAL_BY_TOPIC` | 表达 DataWriter 的存活声明方式及 Lease Duration；匹配条件同时涉及 Kind 和租约时间 | Offered Kind/Lease 必须满足 Requested |
+| **OWNERSHIP** | `SHARED` / `EXCLUSIVE` | `EXCLUSIVE` 配合 `OWNERSHIP_STRENGTH` 可在多个 Writer 中选择拥有者；切换时延、数据连续性和丢样由租约、实现及应用设计决定 | Ownership Kind 必须匹配 |
+
+传输方式（UDP、共享内存、TCP 等）通常属于 DDS 实现或部署配置，不是上述标准 QoS 策略。共享内存、零拷贝、Discovery 方式及可用传输均依赖具体 DDS 实现。
 
 ## SOME/IP 与 DDS 对比与融合架构
 
 | 对比维度 | SOME/IP | DDS (Data Distribution Service) |
 | :--- | :--- | :--- |
-| **标准体系** | AUTOSAR (车规原位标准) | OMG / ROS 2 (工业与机器人标准) |
-| **抽象模型** | 面向服务（RPC 方法、事件通知、属性字段） | 以数据为中心（发布-订阅、分布式主题空间） |
-| **发现机制** | SOME/IP-SD（基于固定端口与周期的集中组播） | RTPS 动态自发现协议（SPDP + SEDP） |
-| **QoS 表达力** | 基础级（E2E、UDP/TCP、基础超时重传） | 工业级极致（20+ 策略组合，精细管控生命周期与队列） |
-| **序列化标准** | 静态紧凑二进制布局（针对微控制器优化） | CDR (Common Data Representation) 序列化 |
-| **协议开销** | 极低（头部仅 16 字节，内存占用极小） | 较高（RTPS 握手与心跳较重，动态发现消耗流量） |
-| **单片机适配** | **完全支持**（可在 8/16/32 位单片机裸机或 CP 上运行）| 困难（标准 DDS 需较多 RAM，Micro-DDS 适度受限） |
-| **首选应用域** | 车身控制、动力底盘、仪表、SOA 信号网关 | 自动驾驶多传感器融合、高算力域控进程间通信 |
+| **标准体系** | AUTOSAR SOME/IP 规范 | OMG DDS；ROS 2 通常通过 RMW 使用 DDS 实现，也可采用其他中间件 |
+| **抽象模型** | 服务、方法调用、事件通知和属性字段 | Topic、DataWriter/DataReader 与数据中心发布/订阅 |
+| **发现机制** | SOME/IP-SD；地址、端口、TTL 和重试由配置决定 | DDSI-RTPS 实现常用 SPDP/SEDP；静态/动态发现能力依实现配置 |
+| **服务质量** | 传输协议、服务发现和相关 Profile 提供各自能力；不等同于通用 QoS 协商 | 提供标准 QoS 策略，端点匹配受策略兼容规则约束 |
+| **序列化** | SOME/IP Transformer/接口配置定义 Payload 编码 | 通常使用 CDR 或其扩展，具体由 DDS 版本及类型配置决定 |
+| **开销与性能** | 固定 SOME/IP Header 为 16 字节；实际开销还包括传输层、SD、序列化和安全字段 | RTPS/DDS 开销和性能随 QoS、发现方式、传输及实现而变 |
+| **资源与平台** | 适用于以太网/IP 环境；资源占用取决于协议栈和目标平台 | 资源需求取决于 DDS 实现、QoS 和传输；轻量级实现可用于受限平台 |
+| **常见使用方式** | 服务调用、事件/属性分发及 AUTOSAR 通信集成 | 分布式数据发布/订阅、跨进程及多节点数据交换 |
 
 ### 现代智能汽车融合通信架构拓扑
 
@@ -285,43 +285,31 @@ flowchart TB
     Protocol_Trans -.->|状态更新入总线| DDS_Sub
 ```
 
-架构落地法则：
-- **数据面（Data Plane）**：LiDAR、Radar、Camera 等传感器高频原生数据，统一走 **DDS**，利用零拷贝共享内存与 Deadline QoS 保证极致吞吐与死线监控；
-- **控制面（Control Plane）**：规划层下发的减速度、方向盘转角、档位请求，经由协议转换网关转化为 **SOME/IP RPC / Event**，通过 AUTOSAR 通信栈安全下发到底盘执行器。
+这张图展示一种可能的跨域组合方案，而不是强制架构：
 
-## 车载以太网 E2E 安全防护机制
+- 高吞吐数据可使用 DDS 发布/订阅；共享内存和零拷贝需目标实现支持，并应结合资源限制、数据生命周期和 QoS 验证。
+- 控制请求可通过 SOME/IP 方法或事件承载；是否跨越协议网关、如何做安全与功能安全保护，应由系统架构和危害分析决定。
+- 协议转换网关需要明确数据类型、单位、时间戳、超时、错误处理及端到端语义，不能只做字段格式搬运。
 
-车载以太网通信跨越物理线束、网络交换机与复杂操作系统驱动栈，存在硬件位翻转、缓冲区溢出、交换机路由错误、跨核乱序等功能安全隐患。遵循 **ISO 26262** 规范，关键控制信号必须在应用层附加 **E2E 保护（End-to-End Protection）**。
+## 端到端（E2E）保护与 SecOC 的边界
 
-### AUTOSAR E2E 针对以太网的核心 Profile
+AUTOSAR E2E Library 用于在通信链路端到端检测符合安全需求的通信错误，例如数据损坏、重复、丢失或序列异常。是否以及如何为信号/数据元素启用 E2E，由系统安全概念、接口配置和危害分析决定；不是所有车载以太网报文都必须使用同一 Profile。
 
-- **Profile 4 / Profile 7（车载以太网主力方案）**：
-  - **Profile 4**：采用 32 位 CRC（IEEE 802.3 校验多项式）+ 16 位循环计数器（Counter）+ 32 位 Data ID，专为以太网中大数据块设计；
-  - **Profile 7**：采用 **64 位 CRC**（常基于 CRC-64-ECMA）+ 32 位递增计数器 + 32 位 Data ID，专为 **ASIL D 自动驾驶最高安全等级** 设计，防碰撞与汉明距离极高。
+**E2E 是功能安全通信保护，不是密码学安全机制**：CRC 和计数器不提供发送者身份认证或机密性，也不能可靠抵御主动攻击者伪造报文。若需要来源认证和防重放，应结合 [[SecOC]] 等机制；两者目标不同，可按架构要求组合使用。
 
-### E2E 报文头部包装与校验闭环
+### Profile 与数据布局
 
-```text
-+-------------------------------------------------------+
-|              SOME/IP Standard Header (16 B)           |
-+-------------------------------------------------------+
-| E2E Header (Profile 4/7):                             |
-|   ├── CRC (32/64 bit)      : 覆盖 Data ID + Counter + Data |
-|   ├── Length (16/32 bit)   : 保护数据实际长度                |
-|   └── Counter (16/32 bit)  : 逐包自增递增序列号              |
-+-------------------------------------------------------+
-|              Actual Application Data Payload          |
-+-------------------------------------------------------+
-```
+AUTOSAR E2E Profiles 定义各自的 CRC、Data ID、Counter、长度/字段布局、允许数据长度及接收状态检查规则。Profile 4、Profile 7 等 Profile 的字段宽度和算法不同，不能用一套通用的“E2E Header”格式概括，也不应仅凭 Profile 编号推断其 ASIL 等级。
 
-1. **发送方保护流程**：
-   - 自增本地计数器（Counter++）；
-   - 计算 CRC 校验码：输入包括预设的隐式/显式 `Data ID`、当前 `Counter` 与 `Payload` 数据；
-   - 将 CRC、Counter 与 Length 写入 E2E 标头并打包外发。
-2. **接收方状态机校验机制**：
-   - **数据完整性校验**：重算 CRC，不一致直接报 `E2E_E_WRONG_CRC` 并丢弃；
-   - **数据时序检查**：检查 Counter 是否单调递增，若发生跳变或回退，判定为丢包（`E2E_E_LOST`）或乱序（`E2E_E_WRONGSEQUENCE`）；
-   - **数据新鲜度（Alive Counter Check）**：若连续收到的报文 Counter 停滞不变，判定为发送端假死/回放攻击（`E2E_E_REPEATED`）。
+保护字段可能嵌入被保护的数据区域或由配置的 Transformer 处理；在 SOME/IP 报文中的具体位置由通信映射和 E2E Profile 配置决定。CRC 覆盖范围、Data ID 的使用方式和 Counter 位宽也必须按所选 Profile 实现。
+
+### 发送与接收闭环
+
+1. **发送端**：按 Profile 更新 Counter，调用对应 Protect/Transformer 处理生成 CRC 和保护字段，再将结果交给配置的通信路径。
+2. **接收端**：对收到的数据调用对应 Check 处理；检查 CRC、Counter/序列窗口及 Profile 定义的其他条件。
+3. **错误处理**：E2E Check 通常返回状态结果；由上层按安全需求决定接受、丢弃、降级或触发故障反应。状态名和恢复规则以对应 Profile API 为准。
+
+Counter 检查可发现一定范围内的重复、丢失或乱序，但它不等同于安全意义上的抗重放认证。Counter 回绕、初始化、丢包容忍窗口和接收状态机复位都必须纳入配置及系统验证。
 
 ## 实车网络调试与抓包分析指南
 
@@ -346,11 +334,13 @@ someip.messagetype == 0x00
 someip.returncode != 0x00
 
 # 查看 SOME/IP-TP 分段中的首包
-someip-tp.offset == 0 && someip-tp.moresegmentsflag == 1
+someip.messagetype & 0x20
 
 # 过滤 DDS RTPS 协议报文
 rtps
 ```
+
+Wireshark 的字段名称和 SOME/IP-TP 解码能力会随版本及 dissector 配置变化；使用前可通过过滤器自动补全确认字段是否存在。
 
 ### 车机与 Linux 域控终端捕获技巧
 
@@ -366,22 +356,22 @@ tcpdump -i eth0 -X -vv 'host 224.244.224.245 and udp port 30490'
 
 ## 生产环境常见避坑清单
 
-1. SD 组播风暴与网络抖动：上电时全车数十个 ECU 同时发布 Offer/FindService 易导致交换机队列溢出。**务必配置合理随机的 `InitialDelay`（如 10~50ms）打散报文**；
-2. 结构体字节对齐灾难：手写代码使用裸 `memcpy` 导致的大小端颠倒或 Padding 错位。**必须始终使用官方工具链生成的 Transformer 序列化器**；
-3. E2E 计数器启动假死：节点重启后，本地 Counter 归零，接收端因检测到 Counter 跳跃判定持续报错。**必须在 E2E 状态机中支持 Profile 初始化同步周期（Sync Counter 机制）**；
-4. 全车 SD 组播地址/端口不统一：A 供应商配置为 `224.244.224.245:30490`，B 供应商配置为 `239.255.0.1:30490`，导致跨域节点彼此失联；
-5. 大包未开 TP 导致链路静默截断：UDP 报文长度超过交换机 MTU，又未在 SOME/IP 配置中启用 SOME/IP-TP，导致底层网卡截断或 IP 丢包；
-6. 事件组（Eventgroup）粒度划分失当：将 100Hz 的高频轮速信号与 1Hz 的胎压信号划在同一事件组，导致只想获取胎压的节点被迫承受高频冗余带宽吞吐；
-7. TTL 过期引发订阅悄然断连：订阅端在 TTL（如 3s）即将耗尽时未自动发起 Renew Subscribe，导致服务到期后静默收不到事件；
-8. DDS 发现风暴（Discovery Storm）：动态环境下数百个 Topic 频繁加入，RTPS 频繁通过组播相互询问，占用高达上百兆带宽。**大型工程建议在静态配置期使用 SPDP 预配置静态对端 IP 列表**；
-9. 接口版本号（Interface Version）不一致：Client 与 Server 的 Interface Version 哪怕相差 1，服务端也将无情返回 `E_WRONG_INTERFACE_VERSION`，排错时需优先核对 ARXML/IDL 版本号；
-10. 跨域无统一时间基准（gPTP）：在分布式传感器融合中，DDS/SOME/IP 传输的时间戳若未接入 IEEE 802.1AS (gPTP) 统一时钟源，将直接导致激光雷达与摄像头感知时钟错乱无法投影。
+1. **SD 组播拥塞**：多 ECU 同时启动可能造成发现报文突发；依据拓扑、带宽和响应时间目标配置 Initial Delay、Repetition 与 Offer 周期，并在交换机/网络仿真环境验证。
+2. **序列化不兼容**：核对双方的接口版本、类型定义、字节序、长度字段及 Transformer 配置；避免把 C 结构体内存布局直接当作线上格式。
+3. **Freshness/Counter 状态丢失**：节点重启、计数器回绕或接收端状态重置可能影响 E2E 检查结果；应按 Profile 设计初始化和恢复流程。若要求抵御恶意重放，应使用密码学机制，而不是仅依赖 E2E Counter。
+4. **SD 端点配置不一致**：核对组播地址、端口、L4 协议、Endpoint Option、TTL 和路由/防火墙策略；示例地址不是所有项目的强制值。
+5. **SOME/IP-TP 与 MTU**：按实际 IP MTU、IP 版本、SOME/IP/TP Header 及分段配置计算每段可承载的数据量，并验证重组缓存、超时和丢段行为。
+6. **Eventgroup 粒度不合适**：将更新频率和消费方不同的事件放在同一组，可能导致订阅方接收不需要的数据；按订阅需求、带宽和发布策略划分。
+7. **TTL/订阅续租**：检查 Offer 与 Subscribe 的 TTL、刷新周期、Ack/Nack 和服务重启处理，避免过期后订阅状态与应用预期不一致。
+8. **DDS 发现和资源占用**：检查 Domain/Participant、发现模式、组播范围、Endpoint 数量和历史缓存；若实现支持静态发现或静态 Peer 配置，可评估其对部署和运行期开销的影响。
+9. **接口版本不匹配**：核对 SOME/IP Interface Version、服务定义和部署配置；实际错误码及服务端处理行为应结合规范版本和抓包确认。
+10. **跨 ECU 时间戳**：只有在数据融合要求跨节点比较时间时，才需规划统一时钟源（例如 IEEE 802.1AS/gPTP）及时间戳语义、精度和同步监控。
 
 ## 总结
 
-SOME/IP 与 DDS 是汽车行业向软件定义汽车（SDV）与 SOA 演进的“左右手”。
+SOME/IP 与 DDS 提供不同的通信抽象，可按服务交互、数据分发、时延、可靠性、资源和互操作需求组合使用。
 
-- **SOME/IP** 坚守车规控制面的安全可靠、小内存占用与 AUTOSAR 规范的一致性；
-- **DDS** 释放了海量数据分发与复杂多传感器协同场景下的极致 QoS 调度潜能。
+- SOME/IP 适合需要明确服务、方法、事件和 AUTOSAR 集成契约的场景。
+- DDS 适合需要数据中心发布/订阅及细粒度 QoS 契约的分布式场景。
 
-理解两者的核心不是非此即彼的争论，而是==在正确的物理域与数据流路径上，通过清晰的契约、严谨的序列化和健壮的 E2E 防护，构建起稳定鲁棒的整车通信网络==。
+选型时应结合部署平台、网络拓扑、数据模型、端到端时序、资源预算和安全/功能安全目标；协议本身不自动保证应用层业务正确性、功能安全或密码学安全。

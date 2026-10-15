@@ -10,7 +10,7 @@ MemIf 位于 [[NvM]] 与 [[Ea]]/[[Fee]] 之间，通过统一 API 加 DeviceInde
 
 > MemIf 更接近一个“静态多态分发器”，而不是一个真正的存储管理器。它不维护 NV Block，不执行磨损均衡，不计算 CRC，也不负责请求排队。
 
-## Mechanism
+## 工作机制
 
 ### 上下游接口契约
 
@@ -57,9 +57,9 @@ MemIf API 中同时出现两个关键标识：
 - `DeviceIndex`：决定请求发给哪个 Ea/Fee 实例
 - `BlockNumber`：由目标 Ea/Fee 解释，用于定位下层存储 Block
 
-### 「同步 API」与「异步作业」
+### 请求提交与异步作业
 
-同步的是请求提交函数本身，不是 NV 操作的完成过程。
+`MemIf_Read()`、`MemIf_Write()` 等接口在调用期间完成设备分发并返回请求是否被接受；实际介质操作通常是异步 Job。请求被接受后，应结合 `MemIf_GetStatus()` 和 `MemIf_GetJobResult()` 判断设备忙闲及最终结果。`MEMIF_JOB_PENDING` 表示作业仍在处理，不能当作成功；立即返回 `E_NOT_OK` 则表示本次请求未被下层接受。
 
 ```mermaid
 sequenceDiagram
@@ -123,11 +123,11 @@ sequenceDiagram
     end
 ```
 
-## Configuration
+## 配置与排查
 
 ### MemIfNumberOfDevices
 
-配置下层 Ea/Fee 设备数量，范围为 `1..2`，属于必配项且不支持 Post-build。
+在当前生成配置中，该参数配置下层 Ea/Fee 设备数量，范围为 `1..2`，属于必配项且不支持 Post-build；这一范围和配置约束应以项目使用的 MemIf 实现及配置工具为准。
 
 联动规则：
 - 仅使用 Ea 或仅使用 Fee：配置为 `1`
@@ -152,3 +152,4 @@ NvMBlockDescriptor.NvMNvramDeviceId
 - 多 ECU 变体中设备表顺序不一致
 - 合并 ARXML 后 DeviceId 数值变化，但 MemIf 生成配置没有同步更新
 
+此外，`BlockNumber` 由选中的 Ea/Fee 实例解释，不等同于 NvM 的 Block ID。排查某个 Block 无法访问时，应从 NvM Block Descriptor 的设备索引开始，继续核对 MemIf 设备表、下层 Block 编号及 JobResult。

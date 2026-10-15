@@ -97,9 +97,9 @@ ApplicationSwComponentType
 
 ### Composition SW Component Type
 
-SWC 的逻辑组合容器，内部包含多个 SWC 实例及其相互之间的内部连接和对外委托连接。如果现阶段仅负责交付某个单一功能 SWC，第一阶段可以不创建 Composition。
+SWC 的逻辑组合容器，内部包含多个 SWC 实例，并通过 Connector 描述实例间的 Assembly 连接和端口向外暴露的 Delegation 连接。Composition 用来表达组件如何组装，不替代 SWC Type 的接口或 Internal Behavior。如果现阶段只交付单一功能 SWC，可以先不创建 Composition；进入系统集成时再补齐组合和连接关系。
 
-## Modeling Steps
+## 建模步骤
 
 ### 第一步：数据字典建模
 
@@ -148,8 +148,8 @@ SWC (Component Type)
 - **组成**：包含一个或多个 `Data Element`。
 - **传输模式**：
   - **Unqueued（默认，非队列）**：覆盖写入，接收端永远只能读取最新值，适合连续物理量。
-  - **Queued（队列）**：FIFO 存储，保证每条数据不丢失，常用于事件通知或计数值。
-- **初值 (Init Value)**：建议在 Data Element 或 Port 上指定 `InitValue`，避免系统上电未收到首帧数据时读出未初始化的垃圾值。
+  - **Queued（队列）**：按 FIFO 暂存多条数据，适合事件或需逐条处理的数据；队列容量有限，必须设计队列满时的处理策略，不能默认认为数据永不丢失。
+- **初值 (Init Value)**：按接口和 RTE 配置为接收数据定义初始值或初始化行为，降低首个有效数据到达前的不确定性。初值不等于已收到有效数据，应用仍应处理数据可用性和超时状态。
 - **典型 RTE 代码**：
   ```c
   /* 接收端读取 (R-Port) */
@@ -162,10 +162,10 @@ SWC (Component Type)
 ##### Client-Server Interface (C/S) - 服务请求与响应
 
 用于函数式过程调用（RPC）。Client 端请求操作，Server 端响应并执行该操作：
-- **组成**：包含一个或多个 `Operation`，每个 Operation 包含参数列表（`Argument`，方向为 `IN`、`OUT` 或 `INOUT`）以及可选的 `ApplicationError`（返回值）。
+- **组成**：包含一个或多个 `Operation`。每个 Operation 定义 `IN`、`OUT` 或 `INOUT` 参数，并可声明 `ApplicationError` 错误码；错误码不是普通输出参数，具体由 RTE 调用接口的返回语义承载。
 - **同步/异步**：
-  - **同步调用**：Client 挂起等待 Server 执行完成返回。
-  - **异步调用**：Client 发出请求后继续执行，后续通过 Poll 或 Callback 检查结果。
+  - **同步调用**：Client 等待服务端操作返回结果；调用耗时和服务端调度会影响 Client 的执行时间。
+  - **异步调用**：Client 发起请求后先返回，之后通过 `Rte_Result()` 获取结果；模型需配置匹配的异步调用点和完成处理路径，具体通知机制依赖 RTE 配置和实现。
 - **典型 RTE 代码**：
   ```c
   /* Client 端调用服务 (R-Port) */
@@ -184,7 +184,7 @@ VehicleModeDeclarationGroup
  └─ SHUTDOWN
 ```
 
-> **架构设计准则**：严禁随意使用普通的 S/R 接口传输一个 `uint8` 枚举值来替代 Mode Switch。因为 AUTOSAR RTE 对 Mode Switch 有专门的生命周期语义，能够直接联动 **禁用或激活** 特定的 Runnable。
+> **架构设计准则**：如果数据表达的是 SWC 的运行模式，优先评估 Mode Switch Interface，而不是仅用 S/R 传递一个 `uint8` 枚举值。Mode Switch 除了传递模式值，还定义了模式声明和切换语义，可与 ModeSwitchEvent、模式访问及 Runnable 禁用依赖等配置协同。若需求只是传递普通枚举数据，S/R 仍然合适。
 
 ### 第三步：内部行为建模（Internal Behavior）
 
@@ -192,7 +192,7 @@ VehicleModeDeclarationGroup
 
 ![[systemdesk-internal-behavior-setting.png]]
 
-Runnable（可运行实体）是 **能够被 RTE 独立调度、启动的最小软件单元**。在 C 语言层面，每个 Runnable 最终映射为一个具体的 C 函数符号（`Symbol`）。
+Runnable（可运行实体）是 RTE 可通过事件触发的执行单元。在 C 语言层面，Runnable 通常映射为一个 C 函数符号（`Symbol`）；RTE 再依据事件、任务映射和系统调度配置安排其执行，Runnable 并不等同于一个独立 OS Task。
 
 #### Runnable 和 Port 的关系
 
@@ -214,7 +214,7 @@ Application SWC
     └── Server Call Points (服务调用点)
 ```
 
-> **核心原则**：Runnable 从不直接绑定“一整块 Port”，而是精准穿透绑定到 Port Interface 中定义的**具体 Data Element、Operation 或 Mode**。
+> **核心原则**：Runnable 的访问点关联到 Port Interface 中具体的 **Data Element、Operation 或 Mode**，而不是直接对整个 Port 执行业务读写。
 
 在实际工程中，Runnable 与 Port 之间主要演化出以下**三种经典拓扑关系**：
 
@@ -243,7 +243,7 @@ Application SWC
 ```
 
 - **代码与 RTE 影响**：
-  RTE Generator 会严格根据 Data Access 声明，为该 Runnable 所在的源文件生成专有的读写宏或函数接口。未显式声明 Access 的数据元素，在代码中无法调用对应的 RTE API：
+  Data Access 配置决定 Runnable 可用的访问语义和 RTE API。Implicit Read/Write 通常对应 `Rte_IRead`/`Rte_IWrite`；Explicit Read/Write 通常对应 `Rte_Read`/`Rte_Write`。若未在 Internal Behavior 中声明相应访问点，生成的 RTE 契约通常不会提供该 Runnable 所需的访问接口。下面是 Explicit Access 的调用示例：
 
 ```c
 /* 读取关联的 R-Port 数据元素 */
@@ -271,7 +271,7 @@ Std_ReturnType ret = Rte_Read_RpVehicleSpeed_VehicleSpeed(&vehicleSpeed);
 ```
 
 - **代码与 RTE 影响**：
-  RTE Generator 会生成阻塞等待的同步调用接口（Synchronous）或带轮询/通知机制的异步调用接口（Asynchronous）：
+  RTE 按调用点的同步/异步配置生成相应接口。同步调用等待操作结果；异步调用通常由 `Rte_Call()` 发起，再通过 `Rte_Result()` 获取结果，并可配置异步返回事件来激活后续处理：
 
 ```c
 /* 当前 Runnable 主动发起服务调用 (Client 角色) */
@@ -300,14 +300,14 @@ Std_ReturnType status = Rte_Call_RpNvMService_ReadBlock(BLOCK_ID, dataBuffer);
 
 - **关键辨析**：
   Server Runnable 与 P-Port 的关联**并不配置在 Data Access 页签**，而是通过 **Triggered by (激活源)** 绑定到 `OperationInvokedEvent`。
-  当外部调用到达该 P-Port 的对应 Operation 时，RTE 拦截到该调用，并直接触发对应的 Server Runnable 执行，最后将处理结果返回给 Client。
+  当外部调用到达该 P-Port 的对应 Operation 时，RTE 按事件和调度配置激活 Server Runnable；操作完成后，RTE 按同步或异步调用语义将结果交还 Client。
 
 ##### 快速决策速查
 
 | 交互诉求 | 涉及端口 | 关联机制 (在 SystemDesk 中的配置位置) | 典型生成的 RTE 语义 |
 |---|---|---|---|
-| **获取外界输入信号** | S/R R-Port | Runnable $\rightarrow$ `Data Access` $\rightarrow$ `Read Access` | `Rte_Read_<Port>_<Element>()` |
-| **向外界发布计算结果** | S/R P-Port | Runnable $\rightarrow$ `Data Access` $\rightarrow$ `Write Access` | `Rte_Write_<Port>_<Element>()` |
+| **获取外界输入信号** | S/R R-Port | Runnable $\rightarrow$ `Data Access` $\rightarrow$ 按需配置 Read 或 Receive | Implicit Read 为 `Rte_IRead`；Explicit Read 为 `Rte_Read`；Queued 接收为 `Rte_Receive` |
+| **向外界发布计算结果** | S/R P-Port | Runnable $\rightarrow$ `Data Access` $\rightarrow$ 按需配置 Write 或 Send | Implicit Write 为 `Rte_IWrite`；Explicit Write 为 `Rte_Write`；Queued 发送为 `Rte_Send` |
 | **主动请求外部功能/服务** | C/S R-Port | Runnable $\rightarrow$ `Operations` (Server Call Points) | `Rte_Call_<Port>_<Operation>()` |
 | **承接并执行外部发来的操作** | C/S P-Port | InternalBehavior $\rightarrow$ `RTE Events` (`OperationInvokedEvent`) $\rightarrow$ 绑定此 Runnable | 被调用入口：`Runnable_Symbol(...)` |
 
@@ -328,27 +328,27 @@ SWC
 
 | 维度 | AUTOSAR Runnable | 普通 C 函数 / Helper Function |
 |---|---|---|
-| **调度入口** | 由 RTE Event 激活，可直接映射到 OS Task | 由内部代码直接调用，不被 RTE 感知 |
+| **调度入口** | 由 RTE Event 激活，并由 RTE/OS 配置映射到执行上下文 | 由内部代码直接调用，不被 RTE 感知 |
 | **ARXML 声明** | 必须有 `RUNNABLE-ENTITY` 元素与配置 | 无需在 ARXML 中体现 |
 | **端口数据访问** | 需配置 Access Point 才能使用 `Rte_Read/Write` | 只能通过入参或全局变量传递数据 |
 | **系统开销** | 占用 RTE 调度上下文与栈开销 | 普通栈帧调用，开销极低 |
 
 #### Runnable 划分决策
 
-> 严禁把软件中的每一个子函数都建模成一个 Runnable！这会导致 RTE 运行时开销、OS 任务切换和上下文保存成本极度膨胀。
+> 不要把每个子函数都建模成 Runnable。Runnable 会参与 RTE 契约、事件和调度配置；过度拆分会增加配置复杂度与运行时开销，但 Runnable 不一定各自对应 OS Task 或任务切换。
 
 在决定是否为一个功能新建 Runnable 时，只需问一个核心问题：
 
 > **“这个函数是否需要拥有独立的 AUTOSAR 执行语义？”**
 
-所谓独立执行语义，包括且仅包括以下条件（满足其一即可考虑）：
+以下情况可作为是否建模为独立 Runnable 的判断依据（满足其一即可评估，仍需结合调度和并发约束）：
 
-1. **独立触发源或执行周期**：例如 10ms 周期执行 vs 100ms 周期执行 vs 硬件中断/事件异步唤醒
+1. **独立触发源或执行周期**：例如 10ms 与 100ms 周期执行，或由数据/操作事件触发
 2. **独立服务入口**：作为 Server 响应外部 Client-Server Operation 请求（通过 `OperationInvokedEvent` 激活）
 3. **独立模式响应**：在特定模式进入（Entry）或退出（Exit）时单独激活/挂起
 4. **独立 Task 映射需求**：该功能属于高优先级核心控制回路，需要独占分配到高优先级 OS Task
 5. **独立并发与互斥控制**：具有特殊的并发（`canBeInvokedConcurrently`）或临界区隔离需求
-6. **独立的数据一致性边界**：需要 RTE 在执行前后统一进行全局数据快照（Copy-in/Copy-out）
+6. **独立的数据一致性边界**：需要为该 Runnable 的数据访问配置隐式读写或其他一致性语义
 
 如果一个函数仅仅是为了**拆分代码长短、算法分步、提高复用性或改善可读性**，它只是**普通私有函数**，不能建模为 Runnable。
 
@@ -358,9 +358,9 @@ Event 决定了 Runnable 在什么时刻、由谁来触发运行：
 
 | Event 类型 | 典型应用场景 | 对应的 Runnable 角色 |
 |---|---|---|
-| **TimingEvent** | 1ms、5ms、10ms、100ms 等固定周期控制任务 | 周期算法主函数（如 `Ec_MainFunction`） |
+| **TimingEvent** | 1ms、5ms、10ms、100ms 等固定周期任务；周期按 ARXML 时间单位配置（示例 `0.01s` 为 10ms） | 周期算法主函数（如 `Ec_MainFunction`） |
 | **InitEvent** | 上电或模块复位后的单次初始化逻辑 | 初始化函数（如 `Ec_Init`） |
-| **DataReceivedEvent** | 当指定的 R-Port 收到新数据时立即激活 | 事件驱动型接收处理函数 |
+| **DataReceivedEvent** | 指定的 R-Port 收到新数据后触发 RTE Event，由调度配置安排执行 | 事件驱动型接收处理函数 |
 | **OperationInvokedEvent** | 外部 Client 调用了本 SWC 提供的 Server 接口 | Server 端处理函数（如 `Uds_ReadData_Op`） |
 | **ModeSwitchEvent** | 系统切换到特定模式（On Entry / On Exit）时触发 | 模式切换处理函数（如 `OnEnter_Sleep`） |
 | **BackgroundEvent** | 系统空闲时运行 | 低优先级后台巡检或自检任务 |
@@ -369,33 +369,34 @@ Event 决定了 Runnable 在什么时刻、由谁来触发运行：
 
 ![[systemdesk-rte-events.png]]
 
+定义 Event 只是建模 Runnable 的触发条件，不会自动完成 ECU 的 OS Task 分配。集成时还要检查 RTE 生成的任务映射、任务优先级和周期、Runnable 的可重入性及共享数据保护，确保实际调度满足响应时间和资源约束。
+
 #### Data Access 访问模式
 
-在 SystemDesk 中为 Runnable 关联端口数据时，必须理解 RTE 生成的不同的数据访问语义。
+在 SystemDesk 中为 Runnable 关联端口数据时，应理解不同访问选项对应的 RTE 语义。图中选项展示的是工具的配置界面；最终生成的 API 还受 AUTOSAR 配置和 RTE 实现影响。
+
+Implicit Access 通常在 Runnable 执行边界建立读写数据的快照/缓冲语义，有助于定义一致性，但可能带来复制开销；Explicit Access 在代码调用 RTE API 时访问数据，时机更灵活，但应用需考虑多次读写之间的数据变化。是否采用队列、显式接收或隐式访问，应按数据是否需要逐条保留、事件触发方式及一致性要求决定。
 
 ##### Receiver Port
 
 ![[systemdesk-rp-access-options.png]]
 
-| Access/Direction                   | 生成 RTE 接口                   | Runnable 使用方式 | 推荐场景         | 是否推荐  |
-| ---------------------------------- | --------------------------- | ------------- | ------------ | ----- |
-| Read                               | `Rte_IRead_xxx()`           | Runnable 内部读取 | 周期控制算法       | ⭐⭐⭐⭐⭐ |
-| Receive by value                   | `value = Rte_Receive_xxx()` | API返回值        | Event/Queued | ⭐⭐⭐   |
-| Receive by argument                | `Rte_Receive_xxx(&value)`   | 指针传参          | Event/大数据    | ⭐⭐⭐⭐  |
-| Read + Receive by value            | 两套接口都生成                     | 二选一           | 兼容遗留项目       | ⭐⭐    |
-| Read + Receive by argument         | 两套接口都生成                     | 二选一           | 兼容遗留项目       | ⭐⭐    |
-| Receive by argument & value        | 两种 Explicit 接口              | 二选一           | 少见           | ⭐     |
-| Read + Receive by argument & value | 所有接口                        | 二选一           | 调试用途         | ⭐     |
+| Access/Direction | 典型 RTE 接口 | 适用场景与注意事项 |
+|---|---|---|
+| Read（Implicit） | `Rte_IRead_xxx()` | Runnable 内读取隐式数据快照；常用于周期性消费 |
+| Receive by value | `Rte_Receive_xxx()` | 从 Queued 接口逐条接收；按工具生成的接口签名传递数据 |
+| Receive by argument | `Rte_Receive_xxx(&value)` | 从 Queued 接口逐条接收；通过参数写入较大数据对象 |
+| Read + Receive 组合 | 同时生成对应的读取接口 | 仅在同一端口确实需要两种访问语义时配置；使用代码和模型配置保持一致 |
 
 ##### Provider Port
 
 ![[systemdesk-pp-access-options.png]]
 
-| Access/Direction | 生成 RTE 接口          | Runnable 使用方式 | 推荐场景     | 是否推荐  |
-| ---------------- | ------------------ | ------------- | -------- | ----- |
-| Write            | `Rte_IWrite_xxx()` | Runnable 内部写  | 周期算法输出   | ⭐⭐⭐⭐⭐ |
-| Send             | `Rte_Send_xxx()`   | 主动发送          | Event 通知 | ⭐⭐⭐   |
-| Write + Send     | 两套接口               | 任选            | 兼容项目     | ⭐⭐    |
+| Access/Direction | 典型 RTE 接口 | 适用场景与注意事项 |
+|---|---|---|
+| Write（Implicit） | `Rte_IWrite_xxx()` | 写入 Runnable 的隐式输出缓冲；常用于周期性输出 |
+| Send | `Rte_Send_xxx()` | 向 Queued 接口发送一条数据；按队列语义处理接收 |
+| Write + Send | 同时生成对应的写入接口 | 仅在同一端口确实需要两种访问语义时配置；不能将两种语义视为等价 |
 
 #### Server Call Point：如何调用外部服务
 
@@ -409,8 +410,8 @@ Runnable
       └─ RpNvMService.ReadBlock (引用 R-Port 及其具体 Operation)
 ```
 
-- **同步调用**：配置为 Synchronous 时，生成 `Rte_Call_<Port>_<Op>()`，调用会一直阻塞等待服务端返回。
-- **异步调用**：生成 `Rte_Call` 发起调用，并在后续通过 `Rte_Result` 查询处理结果。
+- **同步调用**：配置为 Synchronous 时，通过 `Rte_Call_<Port>_<Op>()` 调用并等待操作结果返回。
+- **异步调用**：配置异步调用点后，通过 `Rte_Call()` 发起请求，再用 `Rte_Result()` 获取结果；模型还需定义异步返回后的处理方式。
 
 ### 第四步：实现描述
 
@@ -429,8 +430,8 @@ SwcImplementation 声明编译属性、代码依赖与源码交接
 C Source Code (*.c) / Headers (*.h) / Object / Library
 ```
 
-- Code Descriptors：指定生成的源文件、静态库路径或交付产物名
-- Resource Consumption：描述该实现的内存段分布（Memory Section，如 `.text`, `.bss`）与执行时间预算
+- Code Descriptors：按工具链支持配置源文件、头文件或其他实现制品的引用信息；实际文件名和路径应与交付包及构建工程一致
+- Resource Consumption：仅在项目和工具链使用时填写相应资源描述；Memory Section、链接段和执行时间预算通常还需在实现、编译器、链接器及 ECU 集成配置中共同定义，不能仅靠 SWC 建模项保证
 - 交接提示：若前期仅做纯架构接口定义，把 ARXML 交由算法团队（如 Matlab/TargetLink）去生成算法代码，可在算法模型定型生成代码后再行补全 SwcImplementation
 
 ## 工程实战案例
@@ -475,7 +476,7 @@ ComponentTypes
 ```c
 #include "Rte_TemperatureMonitor.h"
 
-#define TEMPERATURE_LIMIT (10000U) /* 100.00 degC (CompuMethod Factor = 0.01) */
+#define TEMPERATURE_LIMIT (10000U) /* 100.00 degC；假设代码使用 0.01 degC 为单位的整数内部值 */
 
 void TemperatureMonitor_Init(void)
 {
@@ -489,7 +490,7 @@ void TemperatureMonitor_10ms(void)
     Boolean_T overTempFlag = FALSE;
     Std_ReturnType ret;
 
-    /* 1. 显式读取环境温度 */
+    /* 1. Explicit Access 示例；Data Access 配置需与此 API 匹配 */
     ret = Rte_Read_RpTemperature_Temperature(&temperature);
     if (ret == RTE_E_OK)
     {
@@ -521,7 +522,7 @@ void TemperatureMonitor_10ms(void)
 
 ![[systemdesk-ec-main-ops.png]]
 
-## 标准化命名
+## 项目命名建议
 
 | 对象分类 | 命名模板 | 实例 | 说明 |
 |---|---|---|---|
@@ -538,15 +539,15 @@ void TemperatureMonitor_10ms(void)
 
 ## SystemDesk 建模 Checklist
 
-在完成 SWC 建模并准备导出 ARXML 前，逐一核对以下 10 条检查项，可规避 90% 以上的后续 RTE 生成报错：
+在完成 SWC 建模并准备导出 ARXML 前，可用以下检查项核对模型、代码契约和集成配置：
 
 - [ ] **1. ADT-IDT 映射完整性**：所有用到的 `ApplicationDataType` 是否已在 `DataTypeMappingSet` 中映射到有效的 `ImplementationDataType`？
-- [ ] **2. Runnable Symbol 合法性**：每个 Runnable 的 `Symbol` 是否已填入合法的 C 函数名？（不能有特殊字符，不能与 C 语言关键字重名）。
-- [ ] **3. Event 绑定唯一性与有效性**：周期性 Runnable 是否已绑定 `TimingEvent`？周期单位是否正确（秒 `s` vs 毫秒 `ms`，SystemDesk 默认单位为秒 `0.01` 表示 10ms）？
+- [ ] **2. Runnable Symbol 合法性**：每个 Runnable 的 `Symbol` 是否为合法且不冲突的 C 标识符，并与实现中的函数定义一致？
+- [ ] **3. Event 绑定有效性**：Runnable 是否绑定了符合需求的 Event？周期是否与调度设计一致（示例 `0.01s` 表示 10ms）？不要把事件周期误认为最终 OS Task 周期或端到端响应时间。
 - [ ] **4. Server Runnable 触发方式**：提供服务的 Server 端 Runnable 是否正确绑定了 `OperationInvokedEvent`，而不是误配成了 TimingEvent？
-- [ ] **5. Data Access 显式声明**：C 代码中需要调用 `Rte_Read` 或 `Rte_Write` 的信号，是否在 Runnable 的 Data Access 页面中建立了勾选映射？（未声明直接调用会导致 RTE 报未定义符号错误）。
-- [ ] **6. 接口初值 (InitValue)**：S/R 接口的 Data Element 是否在接口或 Port 上配置了初始值，防止车辆刚上电时读出未定义数值？
+- [ ] **5. Data Access 与 API 一致**：Runnable 的 Data Access 配置是否与实现中使用的 Implicit、Explicit 或 Queued API 相匹配？缺少相应访问点可能导致契约生成或 RTE 校验失败。
+- [ ] **6. 首值和数据有效性**：需要初始值时是否按接口/ComSpec/RTE 配置初始化？应用是否区分初始值与有效接收数据，并处理超时或数据不可用？
 - [ ] **7. 避免滥用 Runnable**：内部辅助算法函数是否已被排除在 Runnable 之外？SWC 的 Runnable 数量是否已做到尽可能收敛精简？
-- [ ] **8. 区分 Explicit 与 Implicit**：确定是否需要 Copy-in/Copy-out 一致性保护？若无需一致性保护，优先使用 Explicit Access 以减少内存副本拷贝开销。
+- [ ] **8. 区分 Explicit 与 Implicit**：根据访问时机、数据一致性和执行开销选择访问语义；Implicit Access 可能涉及 Runnable 边界的数据快照，Explicit Access 则通过调用 API 读取或写入，不能简单认为其中一种总是更快。
 - [ ] **9. 内部共享变量安全性**：同一个 SWC 内部被多个 Runnable 访问的共享全局变量，是否配置为了 `Inter-Runnable Variable (IRV)` 或在 `Exclusive Area` 中保护？
 - [ ] **10. Package 层次整洁**：导出的 ARXML 是否按照约定的分包路径存放，没有杂乱无章散落在 Root Package 下？

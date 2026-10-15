@@ -49,11 +49,13 @@ flowchart TB
     CANDRV <--> CANBUS
 ```
 
-PduR 本身不理解 Signal、UDS Service 或 XCP Command，它看到的是：
+PduR 本身不理解 Signal、UDS Service 或 XCP Command。它处理的是 PDU 传输接口参数，而不是报文语义：
 
 ```text
 PDU ID + 数据指针 + 数据长度
 ```
+
+发送和接收方向使用的 PDU ID 由各层接口及生成配置定义，不能把上层 Tx/Rx ID 与下层 ID 当成同一个命名空间。排查路由时，应沿配置的路由路径核对源 PDU、目标 PDU 和方向。
 
 #### 普通 CAN 信号
 
@@ -93,9 +95,40 @@ PduR 对 UDS 的 SID、DID、SubFunction 一无所知。它只是把 CanTp 提�
 
 - **Indication**：下层通知上层已收到数据。
 - **Confirmation**：下层通知上层发送请求已完成。
+- 对 TP 路径，接收过程中的 `StartOfReception`/`CopyRxData` 是分阶段的数据交付，只有 `TpRxIndication` 才表示整个 TP I-PDU 的接收结果。
+- Confirmation 表示传输层报告发送结束，不等同于远端应用已经接收或处理业务数据。
 
 ### 路由类型与资源边界
 
 IF 路由以完整 I-PDU 为单位转发；TP 路由则通过 `StartOfReception`、`CopyRxData`、`CopyTxData` 等接口协调分段数据传递。配置了 Gateway 时，PduR 还可能需要缓存或分段转发资源，其容量和并发能力受生成配置与实现约束。
 
-PduR 的 `PduId` 映射、上/下层模块引用、路由方向及 Routing Group 必须成套匹配。路由配置错误通常表现为发送 API 返回失败、接收回调未到达上层，或网关 PDU 无法转发；排查时应沿上下层 PDU ID 和路由路径逐段核对，而不是检查 Payload 语义。
+Routing Group 可在运行期启用或禁用已配置的路由集合；它不会创建新的路由，也不会动态改变 PDU 目标。多播路由会把同一源 PDU 分发到多个已配置目标，目标调用结果和失败处理应按对应接口及配置理解。
+
+PduR 的 PDU ID 映射、上/下层模块引用、路由方向及 Routing Group 必须成套匹配。路由配置错误常表现为发送 API 返回失败、接收回调未到达上层，或网关 PDU 无法转发。应沿源 PDU ID、路由路径、目标 PDU ID 和路由组状态逐段检查，而不是检查 Payload 语义。
+
+### 路由执行时序
+
+下面以 IF 接收和 TP 接收为例，展示 PduR 如何按配置连接上下层接口。不同模块的具体 API 名称及回调方向可能因接口类型而异。
+
+```mermaid
+sequenceDiagram
+    participant Lower as 下层模块
+    participant PduR
+    participant Upper as 上层模块
+
+    alt IF 接收完整 PDU
+        Lower->>PduR: RxIndication(LowerRxPduId, PduInfo)
+        PduR->>PduR: 查找配置路由并检查路由组
+        PduR->>Upper: RxIndication(UpperRxPduId, PduInfo)
+    else TP 分段接收
+        Lower->>PduR: StartOfReception(LowerRxPduId, ...)
+        PduR->>Upper: StartOfReception(UpperRxPduId, ...)
+        Upper-->>PduR: 可接收缓冲长度/结果
+        loop 后续数据段
+            Lower->>PduR: CopyRxData(LowerRxPduId, ...)
+            PduR->>Upper: CopyRxData(UpperRxPduId, ...)
+        end
+        Lower->>PduR: TpRxIndication(LowerRxPduId, result)
+        PduR->>Upper: TpRxIndication(UpperRxPduId, result)
+    end
+```
