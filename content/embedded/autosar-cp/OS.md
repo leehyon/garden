@@ -1,8 +1,8 @@
 ---
-title: AUTOSAR Operating System
+title: Operating System
 ---
 
-AUTOSAR OS 是运行在 MCU 与 RTE/BSW/Application 之间的实时内核，负责任务和中断调度、时间事件、同步原语以及可选的空间/时间保护。其主要职责包括：
+AUTOSAR OS 是运行在 MCU 与 [[RTE]]/BSW/Application 之间的实时内核，负责任务和中断调度、时间事件、同步原语以及可选的空间/时间保护。其主要职责包括：
 
 - 将任务、ISR、Alarm、Event、ScheduleTable 统一映射到确定性的实时调度模型
 - 在多核场景下提供跨核服务、IOC 通信和 Spinlock 同步
@@ -31,10 +31,10 @@ OS 不是周期轮询型 BSW 模块，也没有类似 `Os_MainFunction()` 的统
 
 OS 的典型执行链是：
 
-1. 硬件定时器产生中断，OS 驱动相应 Counter 前进。
-2. Alarm 或 ScheduleTable 到期，执行配置动作，例如激活 Task 或设置 Event。
-3. 调度器按任务状态、优先级及抢占属性选择当前核上的 Ready Task。
-4. 若启用保护，OS 在上下文切换时应用相应的内存保护，并在运行期间检查配置的执行预算、锁中断预算或时间框架限制。
+1. 硬件定时器产生中断，OS 驱动相应 Counter 前进
+2. Alarm 或 ScheduleTable 到期，执行配置动作，例如激活 Task 或设置 Event
+3. 调度器按任务状态、优先级及抢占属性选择当前核上的 Ready Task
+4. 若启用保护，OS 在上下文切换时应用相应的内存保护，并在运行期间检查配置的执行预算、锁中断预算或时间框架限制
 
 ```mermaid
 sequenceDiagram
