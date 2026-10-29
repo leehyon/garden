@@ -384,10 +384,12 @@ C:\Program Files\Common Files\dSPACE\Help 2022-B\Print\
 
 ## 2. 软件组件与职责
 
-```text
-物理按键 → HMI → ButtonEvent ──┐
-                               ├→ MirrorMgr → MirrorStatus → Display
-外部模式指令 ──────────────────┘
+```mermaid
+flowchart LR
+    PhysicalKey[物理按键] --> HMI[HMI]
+    HMI -->|ButtonEvent| MirrorMgr[MirrorMgr]
+    ExternalCommand[外部模式指令] --> MirrorMgr
+    MirrorMgr -->|MirrorStatus| Display[Display]
 ```
 
 | SWC | 负责 | 不负责 |
