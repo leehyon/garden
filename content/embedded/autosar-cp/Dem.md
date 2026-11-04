@@ -108,3 +108,97 @@ PASSED    -> 直接判定通过
 - 检查冻结帧/扩展数据的触发条件与采集回调，避免把“事件已失败”误认为“记录数据已持久化”。
 - 对照 DTC Status Byte、FiM 通知和 Dcm 查询结果，区分 Event 状态、DTC 汇总状态与功能许可状态。
 - 若持久化数据缺失，检查 Dem/NvM 初始化顺序、写入请求及 NvM 最终状态。
+
+## 再理解 2026-11-04
+
+可以先把 DEM 看成两件事：==管理故障状态==和==保存故障发生时的证据数据==。不过还有一个关键中间层：DEM 实际上通常以 **Event** 为核心管理状态，再由 Event 关联到 DTC。
+
+```text
+监控逻辑发现异常
+       ↓ 上报 Event 状态（失败/通过）
+DEM 管理 Event：防抖、确认、老化、清除
+       ↕
+Event 关联 DTC：诊断仪看到的故障码
+       ↓ 满足配置的触发条件时
+保存快照：冻结帧、扩展数据
+```
+### 第一块：故障本身怎么管理
+
+例如“电机温度过高”是一个 **Event**，它关联一个 DTC，比如 `Pxxxx` 或项目定义的 UDS DTC
+- **防抖**：异常需要持续多久或累计到多少次，才算真正故障；恢复也可能需要满足相反条件
+- **确认**：是否要经过多个测试周期才把故障标记为 confirmed
+- **老化**：故障长期不再出现后，如何降低或清除其老化状态
+- **故障内存**：哪些事件进入记录、容量满时怎么替换
+- **清除**：诊断仪清故障时，Event 状态及相关记录如何处理
+
+这块回答的是：**“这个故障现在是什么状态？是否记录、确认、老化或清除？”**
+
+### 第二块：故障发生时保存什么
+
+快照不是故障状态本身，而是故障发生时留下的诊断数据，帮助事后分析“当时车辆处于什么状态”。例如电机过温时保存车速、电机温度、电流和电压。
+
+相关对象可以这样理解：
+- **Data Element（`DemDataElementClass`）**：一个具体数据项，以及 DEM 如何取得它。比如“电机温度”，还要定义数据长度和读取接口。
+- **DID（`DemDidClass`）**：给一组数据项一个标识。比如 DID `0xF1A0` 包含车速和电机温度。DID 是数据的组织/标识方式，不是一次快照。
+- **冻结帧（Freeze Frame）**：配置一组 DID，定义“快照里要保存哪些数据”。
+- **冻结帧记录（Freeze Frame Record）**：定义快照记录编号、什么时候触发保存、再次触发时是否更新。比如故障首次测试失败时记录一份，或 confirmed 时记录一份。
+- **扩展数据（Extended Data）**：另一类与 DTC 关联的数据记录，常用于保存 DEM 管理的故障计数、老化计数等，或按配置取得的其他诊断信息。它和冻结帧是两种不同的数据记录类型。
+
+假设“电机温度过高”对应一个 Event 和 DTC：
+1. 软件周期性检查电机温度，异常时向 DEM 报告 Event 测试失败。
+2. DEM 根据防抖配置判断是否达到故障阈值；达到后更新 Event/DTC 状态，并按存储策略把它放进故障内存。
+3. 配置的冻结帧触发条件满足时，DEM 读取配置的数据，例如车速、电机温度、电机电流。
+4. 这些值按配置保存为该故障的冻结帧数据。
+5. 之后诊断仪通过 UDS `0x19` 读取 DTC 信息及相关快照，工程师看到的不只是“有一个过温故障”，还可以看到故障出现时的运行条件。
+
+引用链
+```text
+DTC
+ └─ DemDTCAttributes
+     ├─ FreezeFrameClassRef       → 快照内容：哪些 DID / 数据项
+     └─ FreezeFrameRecNumClassRef → 保存规则：记录号、触发时机、是否更新
+```
+
+```mermaid
+flowchart TD
+    A["DemDataElementClass<br/>单个数据项<br/>读取接口 / 数据长度"]
+    B["DemDidClass<br/>DID 定义<br/>组合一个或多个数据项"]
+    C["DemFreezeFrameClass<br/>快照内容<br/>选择要保存的 DID"]
+
+    D["DemFreezeFrameRecNumClass<br/>冻结帧记录号集合"]
+    E["DemFreezeFrameRecordClass<br/>单条记录配置<br/>记录号 / 触发条件 / 更新策略"]
+
+    F["DemDTCAttributes<br/>DTC 属性策略<br/>老化 / 优先级 / 故障内存 / 快照配置"]
+    G["DemEventParameter<br/>事件配置<br/>Event ID / 可用状态"]
+    H["DemDTC<br/>故障码定义<br/>DTC 数值 / 严重度"]
+
+    I["DemEnableConditionGroup<br/>使能条件组"]
+    J["DemEnableCondition<br/>单项运行时使能条件"]
+
+    K["DemDebounceAlgorithmClass<br/>防抖算法配置<br/>选择计数器或计时器类"]
+    L["DemOperationCycles<br/>运行周期定义<br/>如点火周期"]
+
+    B -->|"引用数据项"| A
+    C -->|"选择 DID"| B
+    D -->|"包含记录配置"| E
+
+    H -->|"引用属性策略"| F
+    F -->|"引用快照内容"| C
+    F -->|"引用记录号集合"| D
+    F -->|"引用老化周期"| L
+
+    G -->|"关联故障码"| H
+    G -->|"引用使能条件组"| I
+    I -->|"包含条件"| J
+    G -->|"引用防抖算法"| K
+    G -->|"引用事件评估周期"| L
+
+    classDef cfg fill:#dcecf8,stroke:#3b82f6;
+    classDef runtime fill:#fff3e0,stroke:#f57c00;
+
+    class A,B,C,D,E,F,G,H,I,J,K,L cfg;
+```
+
+如果 `DemDataElementClass` 配成 External CS 并启用 `DemDataElementUsePort`，就需要通过相应的 Client-Server/RTE 接口取得数据；具体生成什么端口、由谁实现，要看项目的生成和集成方式。关键不是“实现这个配置对象”，而是确保 DEM 调用时有正确的数据读取实现。
+
+❓问题 1：`DemEnableConditionStatus` 定义该使能条件的初始状态。勾选，初始状态为使能；不勾选，初始状态为禁止。如果不勾选，后面谁让这个条件使能呢？也没看到 RTE 接口能 mapping
