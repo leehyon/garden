@@ -202,3 +202,55 @@ flowchart TD
 如果 `DemDataElementClass` 配成 External CS 并启用 `DemDataElementUsePort`，就需要通过相应的 Client-Server/RTE 接口取得数据；具体生成什么端口、由谁实现，要看项目的生成和集成方式。关键不是“实现这个配置对象”，而是确保 DEM 调用时有正确的数据读取实现。
 
 ❓问题 1：`DemEnableConditionStatus` 定义该使能条件的初始状态。勾选，初始状态为使能；不勾选，初始状态为禁止。如果不勾选，后面谁让这个条件使能呢？也没看到 RTE 接口能 mapping
+- 针对 BSW 的 interface，先要明确调用方向
+  - DEM 提供服务（API），SW-C 调用：DEM 是 server，SW-C 是 client
+  - DEM 主动调用外部实现的 callback：DEM 一侧是 client，提供回调实现的一侧是 server
+- `Dem_SetEnableCondition` 是 Dem 提供的 API，调用者可以是 BSW 模块，也可以是通过 RTE 调用的 SW-C，如果一直没有人将它置为 true，关联事件的该条件就一直不满足
+
+### 故障掉电保存
+
+把关系分成 **DTC 的运行时存储策略** 和 **DEM 数据的 NvM 持久化映射** 两部分。图中实线表示配置引用，虚线表示容量约束或运行时关系：
+
+```mermaid
+flowchart TD
+    Event["DemEventParameter<br/>事件配置"]
+    DTC["DemDTC<br/>故障码定义"]
+    Attr["DemDTCAttributes<br/>DTC 管理属性"]
+
+    Primary["DemPrimaryMemory<br/>Primary 故障内存"]
+    MaxEntry["DemMaxNumberEventEntryPrimary<br/>Primary Memory 最大条目数 N"]
+
+    NvIds["DemNvRamBlockIds<br/>DEM 持久化块映射"]
+    Status["状态块<br/>DemStatusDataBlock"]
+    Admin["管理块<br/>DemAdminDataBlock"]
+    EntryBlocks["故障条目块<br/>DemPrimaryDataBlock0..N-1"]
+    NvM["NvMBlockDescriptors<br/>NvM 中的块定义"]
+
+    FFClass["DemFreezeFrameClass<br/>快照内容"]
+    RecNum["DemFreezeFrameRecNumClass<br/>记录号集合"]
+    Record["DemFreezeFrameRecordClass<br/>记录号/触发条件/更新策略"]
+
+    Event -->|"DemDTCRef"| DTC
+    Event -->|"Event进入 DEM 管理"| Attr
+    DTC -->|"DemDTCAttributesRef"| Attr
+    Attr -->|"DemMemoryDestinationRef"| Primary
+    Attr -->|"DemFreezeFrameClassRef（可选）"| FFClass
+    Attr -->|"DemFreezeFrameRecNumClassRef（可选）"| RecNum
+    RecNum -->|"包含"| Record
+
+    Primary -->|"配置容量"| MaxEntry
+    MaxEntry -.->|"N个可用故障条目槽位"| EntryBlocks
+
+    NvIds -->|"状态数据映射"| Status
+    NvIds -->|"管理数据映射"| Admin
+    NvIds -->|"每槽位一个持久化块"| EntryBlocks
+    Status -->|"DemNvRamBlockIdRef"| NvM
+    Admin -->|"DemNvRamBlockIdRef"| NvM
+    EntryBlocks -->|"各自引用 NvM Block"| NvM
+
+    classDef cfg fill:#dcecf8,stroke:#3b82f6;
+    classDef runtime fill:#fff3e0,stroke:#f57c00;
+    class Event,DTC,Attr,Primary,MaxEntry,NvIds,Status,Admin,EntryBlocks,FFClass,RecNum,Record,NvM cfg;
+```
+
+如果项目==不使用 FreezeFrame 和 ExtendedData==，那么 DEM 持久化到 NvM 的内容通常只配置：`DemStatusDataBlock` 和 `DemAdminDataBlock`，这是很多量产项目（尤其是资源受限 ECU）的常见配置。
